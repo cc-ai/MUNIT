@@ -2,6 +2,7 @@
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
+import pdb
 from torch import nn
 from torch.autograd import Variable
 import torch
@@ -86,6 +87,7 @@ class MsImageDis(nn.Module):
 # Generator
 ##################################################################################
 
+
 class AdaINGen(nn.Module):
     # AdaIN auto-encoder architecture
     def __init__(self, input_dim, params):
@@ -99,44 +101,67 @@ class AdaINGen(nn.Module):
         mlp_dim = params['mlp_dim']
 
         # style encoder
-        self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='ln', activ=activ, pad_type=pad_type)
 
         # content encoder
         self.enc_content = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
-        self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, style_dim, mlp_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
-        self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
+        #pdb.set_trace()
+        #self.b_mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
+        #self.f_mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
+        #self.f_mlp = MLP(style_dim, input_dim*2, mlp_dim, 3, norm='none', activ=activ)
+        #self.b_mlp = MLP(style_dim, input_dim*2, mlp_dim, 3, norm='none', activ=activ)
 
-    def forward(self, images):
+
+    def forward(self, images, masks):
         # reconstruct an image
-        content, style_fake = self.encode(images)
+
+        up_m = F.interpolate(masks, None, 4, 'bilinear', align_corners=False)
+
+        content, style_fake = self.encode(images, up_m)
         images_recon = self.decode(content, style_fake)
         return images_recon
 
-    def encode(self, images):
+    def encode(self, images, masks=None):
         # encode an image to its content and style codes
-        style_fake = self.enc_style(images)
+        if masks is None:
+            style_fake = self.enc_style(images)
+        else:
+            style_fake = self.enc_style(masks*images)
         content = self.enc_content(images)
         return content, style_fake
 
-    def decode(self, content, style):
+    def decode(self, content, style_fg, mask=None, style_bg=None):
         # decode content and style codes to an image
-        adain_params = self.mlp(style)
-        self.assign_adain_params(adain_params, self.dec)
-        images = self.dec(content)
+        #A_adain_params = self.b_mlp(style_bg)
+        #B_adain_params = self.f_mlp(style_fg)
+        #self.assign_adain_params(A_adain_params, B_adain_params, self.dec)
+
+        images = self.dec(content, style_fg, mask, style_bg)
+
         return images
 
-    def assign_adain_params(self, adain_params, model):
+
+    def assign_adain_params(self, A_adain_params, B_adain_params, model):
         # assign the adain_params to the AdaIN layers in model
         for m in model.modules():
             if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                mean = adain_params[:, :m.num_features]
-                std = adain_params[:, m.num_features:2*m.num_features]
-                m.bias = mean.contiguous().view(-1)
-                m.weight = std.contiguous().view(-1)
-                if adain_params.size(1) > 2*m.num_features:
-                    adain_params = adain_params[:, 2*m.num_features:]
+                mean = A_adain_params[:, :m.num_features]
+                std = A_adain_params[:, m.num_features:2*m.num_features]
+                m.bias_a = mean.contiguous().view(-1)
+                m.weight_a = std.contiguous().view(-1)
+                if A_adain_params.size(1) > 2*m.num_features:
+                    A_adain_params = A_adain_params[:, 2*m.num_features:]
+
+                mean = B_adain_params[:, :m.num_features]
+                std = B_adain_params[:, m.num_features:2*m.num_features]
+                m.bias_b = mean.contiguous().view(-1)
+                m.weight_b = std.contiguous().view(-1)
+                if B_adain_params.size(1) > 2*m.num_features:
+                    B_adain_params = B_adain_params[:, 2*m.num_features:]
+
 
     def get_num_adain_params(self, model):
         # return the number of AdaIN parameters needed by the model
@@ -144,6 +169,7 @@ class AdaINGen(nn.Module):
         for m in model.modules():
             if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
                 num_adain_params += 2*m.num_features
+
         return num_adain_params
 
 
@@ -160,6 +186,7 @@ class VAEGen(nn.Module):
         # content encoder
         self.enc = ContentEncoder(n_downsample, n_res, input_dim, dim, 'in', activ, pad_type=pad_type)
         self.dec = Decoder(n_downsample, n_res, self.enc.output_dim, input_dim, res_norm='in', activ=activ, pad_type=pad_type)
+
 
     def forward(self, images):
         # This is a reduced VAE implementation where we assume the outputs are multivariate Gaussian distribution with mean = hiddens and std_dev = all ones.
@@ -220,13 +247,14 @@ class ContentEncoder(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+
 class Decoder(nn.Module):
-    def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
+    def __init__(self, n_upsample, n_res, dim, output_dim, style_dim, mlp_dim, res_norm='ln', activ='relu', pad_type='zero'):
         super(Decoder, self).__init__()
 
         self.model = []
         # AdaIN residual blocks
-        self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type)]
+        self.model += [ResBlocks(n_res, dim, 'ln', activ, pad_type=pad_type)]
         # upsampling blocks
         for i in range(n_upsample):
             self.model += [nn.Upsample(scale_factor=2),
@@ -236,8 +264,43 @@ class Decoder(nn.Module):
         self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
 
-    def forward(self, x):
-        return self.model(x)
+        self.f_mlp = MLP(style_dim, dim*8, mlp_dim, 3, norm='none', activ=activ)
+        self.b_mlp = MLP(style_dim, dim*8, mlp_dim, 3, norm='none', activ=activ)
+
+
+    def forward(self, c_A, s_fB, m_A, s_bA):
+
+        A_adain_params = self.b_mlp(s_bA)
+        B_adain_params = self.f_mlp(s_fB)
+
+        m_ds = F.interpolate(m_A, None, 0.25, 'bilinear', align_corners=False)
+        m_ds_ex = m_ds[:,0,:,:].expand_as(c_A)
+        transformed_c_A, _, _ = self.highway_AdaIN(A_adain_params, B_adain_params, m_ds_ex, c_A)
+
+        out = self.model(transformed_c_A)
+        return out
+
+    def highway_AdaIN(self, A_adain_params, B_adain_params, m_A, c_A):
+
+
+        n_affine_param = B_adain_params.size(1) // 2
+        c_A_mean = torch.mean(torch.mean(c_A, dim=3), dim=2).unsqueeze(2).unsqueeze(3)
+        c_A_std = torch.std(torch.std(c_A, dim=3), dim=2).unsqueeze(2).unsqueeze(3)
+
+        s_A_mean = A_adain_params[:, :n_affine_param].unsqueeze(2).unsqueeze(3)
+        s_A_log_var = A_adain_params[:, n_affine_param:n_affine_param * 2].unsqueeze(2).unsqueeze(3)
+        s_A_std = torch.exp(0.5 * s_A_log_var)
+
+        s_B_mean = B_adain_params[:, :n_affine_param].unsqueeze(2).unsqueeze(3)
+        s_B_log_var = B_adain_params[:, n_affine_param:n_affine_param * 2].unsqueeze(2).unsqueeze(3)
+        s_B_std = torch.exp(0.5 * s_B_log_var)
+
+        eps = 1e-5
+        norm_c_A = (c_A - c_A_mean) / (c_A_std + eps)
+
+        return (m_A * (s_B_std * norm_c_A + s_B_mean) + (1 - m_A) * (s_A_std * norm_c_A + s_A_mean)
+                , s_B_mean.view(s_B_mean.size(0), -1), s_B_std.view(s_B_std.size(0), -1))
+
 
 ##################################################################################
 # Sequential Models
@@ -274,16 +337,16 @@ class ResBlock(nn.Module):
     def __init__(self, dim, norm='in', activation='relu', pad_type='zero'):
         super(ResBlock, self).__init__()
 
-        model = []
-        model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
-        model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
-        self.model = nn.Sequential(*model)
+        self.model = []
+        self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+        self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
+        self.model = nn.Sequential(*self.model)
 
     def forward(self, x):
         residual = x
-        out = self.model(x)
-        out += residual
-        return out
+        x = self.model(x)
+        x += residual
+        return x
 
 class Conv2dBlock(nn.Module):
     def __init__(self, input_dim ,output_dim, kernel_size, stride,
@@ -453,29 +516,42 @@ class Vgg16(nn.Module):
 class AdaptiveInstanceNorm2d(nn.Module):
     def __init__(self, num_features, eps=1e-5, momentum=0.1):
         super(AdaptiveInstanceNorm2d, self).__init__()
+
         self.num_features = num_features
         self.eps = eps
         self.momentum = momentum
         # weight and bias are dynamically assigned
-        self.weight = None
-        self.bias = None
+        self.weight_a = None
+        self.bias_a = None
+        self.weight_b = None
+        self.bias_b = None
+
         # just dummy buffers, not used
         self.register_buffer('running_mean', torch.zeros(num_features))
         self.register_buffer('running_var', torch.ones(num_features))
 
-    def forward(self, x):
-        assert self.weight is not None and self.bias is not None, "Please assign weight and bias before calling AdaIN!"
+
+    def forward(self, x, m):
+        assert self.weight_a is not None and self.bias_a is not None, "Please assign weight and bias before calling AdaIN!"
+        assert self.weight_b is not None and self.bias_b is not None, "Please assign weight and bias before calling AdaIN!"
+
         b, c = x.size(0), x.size(1)
         running_mean = self.running_mean.repeat(b)
         running_var = self.running_var.repeat(b)
 
         # Apply instance norm
-        x_reshaped = x.contiguous().view(1, b * c, *x.size()[2:])
+        x_f = x * m
+        x_b = x * (1-m)
+        x_f_reshaped = x_f.contiguous().view(1, b * c, *x.size()[2:])
+        x_b_reshaped = x_b.contiguous().view(1, b * c, *x.size()[2:])
 
-        out = F.batch_norm(
-            x_reshaped, running_mean, running_var, self.weight, self.bias,
+        out_f = F.batch_norm(
+            x_f_reshaped, running_mean, running_var, self.weight_a, self.bias_a,
             True, self.momentum, self.eps)
-
+        out_b = F.batch_norm(
+            x_b_reshaped, running_mean, running_var, self.weight_b, self.bias_b,
+            True, self.momentum, self.eps)
+        out = out_f + out_b
         return out.view(b, c, *x.size()[2:])
 
     def __repr__(self):
@@ -495,7 +571,6 @@ class LayerNorm(nn.Module):
 
     def forward(self, x):
         shape = [-1] + [1] * (x.dim() - 1)
-        # print(x.size())
         if x.size(0) == 1:
             # These two lines run much faster in pytorch 0.4 than the two lines listed below.
             mean = x.view(-1).mean().view(*shape)
