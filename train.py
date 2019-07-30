@@ -6,10 +6,10 @@ from comet_ml import Experiment
 comet_exp = Experiment(api_key="api_key",
                         project_name="MUNIT_one_style", workspace="workspace")
 
-from utils import get_all_data_loaders, prepare_sub_folder, write_html, write_loss, get_config, write_2images, Timer
+from utils import get_all_data_loaders, prepare_sub_folder, write_html, write_loss, get_config, write_2images, Timer,get_data_loader_mask_and_im
 import argparse
 from torch.autograd import Variable
-from trainer import MUNIT_Trainer
+from trainer_with_recon_mask import MUNIT_Trainer
 import torch.backends.cudnn as cudnn
 import torch
 try:
@@ -21,12 +21,16 @@ import sys
 import tensorboardX
 import shutil
 
+
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--config', type=str, default='configs/edges2handbags_folder.yaml', help='Path to the config file.')
+parser.add_argument('--config', type=str, default='configs/mapi_crf_inc_mlp.yaml', help='Path to the config file.')
 parser.add_argument('--output_path', type=str, default='.', help="outputs path")
 parser.add_argument("--resume", action="store_true")
 parser.add_argument('--trainer', type=str, default='MUNIT', help="MUNIT|UNIT")
 opts = parser.parse_args()
+
+comet_exp.log_asset(file_data=opts.config, file_name='config.yaml')
 
 cudnn.benchmark = True
 
@@ -44,9 +48,24 @@ elif opts.trainer == 'UNIT':
 else:
     sys.exit("Only support MUNIT|UNIT")
 trainer.cuda()
-train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(config)
-train_display_images_a = torch.stack([train_loader_a.dataset[i] for i in range(display_size)]).cuda()
-train_display_images_b = torch.stack([train_loader_b.dataset[i] for i in range(display_size)]).cuda()
+train_loader_aa, train_loader_bb, test_loader_a, test_loader_b = get_all_data_loaders(config)
+
+train_loader_a = get_data_loader_mask_and_im(
+    config['data_list_train_a'], config['data_list_train_a_seg'],    
+    config['batch_size'], True, new_size = config['new_size'],                                     
+    height=config['crop_image_height'], width=config['crop_image_width'], 
+    num_workers=config['num_workers'], crop=True)
+
+train_loader_b = get_data_loader_mask_and_im(
+    config['data_list_train_b'], config['data_list_train_b_seg'],    
+    config['batch_size'], True, new_size = config['new_size'],                                     
+    height=config['crop_image_height'], width=config['crop_image_width'], 
+    num_workers=config['num_workers'], crop=True)
+
+
+
+train_display_images_a = torch.stack([train_loader_aa.dataset[i] for i in range(display_size)]).cuda()
+train_display_images_b = torch.stack([train_loader_bb.dataset[i] for i in range(display_size)]).cuda()
 test_display_images_a = torch.stack([test_loader_a.dataset[i] for i in range(display_size)]).cuda()
 test_display_images_b = torch.stack([test_loader_b.dataset[i] for i in range(display_size)]).cuda()
 
@@ -60,20 +79,21 @@ shutil.copy(opts.config, os.path.join(output_directory, 'config.yaml')) # copy c
 # Start training
 iterations = trainer.resume(checkpoint_directory, hyperparameters=config) if opts.resume else 0
 while True:
-    for it, (images_a, images_b) in enumerate(zip(train_loader_a, train_loader_b)):
+    # for it, (images_a, images_b) in enumerate(zip(train_loader_a, train_loader_b)):
+    for it, ((images_a, mask_a),(images_b,mask_b)) in enumerate(zip(train_loader_a,train_loader_b)):
         trainer.update_learning_rate()
         images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
-
+        mask_a, mask_b = mask_a.cuda().detach(), mask_b.cuda().detach()
         with Timer("Elapsed time in update: %f"):
             # Main training code
-            trainer.dis_update(images_a, images_b, config)
-            trainer.gen_update(images_a, images_b, config)
+            trainer.dis_update(images_a, images_b, config,comet_exp)
+            trainer.gen_update(images_a, images_b, config,mask_a,mask_b,comet_exp)
             torch.cuda.synchronize()
 
 #         # Dump training stats in log file
-#         if (iterations + 1) % config['log_iter'] == 0:
-#             print("Iteration: %08d/%08d" % (iterations + 1, max_iter))
-#             write_loss(iterations, trainer, train_writer)
+         #if (iterations + 1) % config['log_iter'] == 0:
+        print("Iteration: %08d/%08d" % (iterations + 1, max_iter))
+             #write_loss(iterations, trainer, train_writer)
 
         # Write images
         if (iterations + 1) % config['image_save_iter'] == 0:
@@ -85,7 +105,7 @@ while True:
             write_2images(train_image_outputs, display_size, image_directory, 'train_%08d' % \
                           (iterations + 1),comet_exp)
             # HTML
-            write_html(output_directory + "/index.html", iterations + 1, config['image_save_iter'], 'images')
+            # write_html(output_directory + "/index.html", iterations + 1, config['image_save_iter'], 'images')
 
         if (iterations + 1) % config['image_display_iter'] == 0:
             with torch.no_grad():
