@@ -186,8 +186,10 @@ class MUNIT_Trainer(nn.Module):
         return(loss)
     
     def compute_semantic_seg_loss(self, img1,img2, mask):
-        input_transformed1 = seg_transform()(img1.cpu()).unsqueeze(0).to('cuda')
-        input_transformed2 = seg_transform()(img2.cpu()).unsqueeze(0).to('cuda')
+        img1_denorm = (img1 + 1) / 2.
+        img2_denorm = (img2 + 1) / 2.
+        input_transformed1 = seg_transform()(img1_denorm).unsqueeze(0)
+        input_transformed2 = seg_transform()(img2_denorm).unsqueeze(0)
         
         target = self.segmentation_model(input_transformed1).squeeze().max(0)[1].unsqueeze(0)
         output = self.segmentation_model(input_transformed2)
@@ -195,7 +197,7 @@ class MUNIT_Trainer(nn.Module):
         #print('target.device',target.device)
         #print('output.device',output.device)
         
-        mask1 = torch.nn.functional.interpolate(mask, size=(512,512))
+        mask1 = torch.nn.functional.interpolate(mask, size=(256,256))
         mask1_tensor = torch.tensor(mask1,dtype=torch.long).cuda()
         target_with_mask = torch.mul(1-mask1_tensor,target) +mask1_tensor*19
         
@@ -204,7 +206,7 @@ class MUNIT_Trainer(nn.Module):
         #print('target_with_mask.device',target_with_mask.device)
         
         #print('target_with_mask.shape',target_with_mask.shape)
-        mask2 = torch.nn.functional.interpolate(mask, size=(512,512))
+        mask2 = torch.nn.functional.interpolate(mask, size=(256,256))
         mask_tensor = torch.tensor(mask2,dtype=torch.float).cuda()
         output_with_mask = (torch.mul(1-mask_tensor,output))
         
@@ -259,12 +261,15 @@ class MUNIT_Trainer(nn.Module):
         for i in range(x_a.size(0)):
             
             # Inference semantic segmentation on original images
-            im_a  = x_a[i].squeeze().cpu()
-            im_b  = x_b[i].squeeze().cpu()
-            input_transformed_a = seg_transform()(im_a).unsqueeze(0).to('cuda')
-            input_transformed_b = seg_transform()(im_b).unsqueeze(0).to('cuda')
+            im_a  = (x_a[i].squeeze()+1)/2.
+            im_b  = (x_b[i].squeeze()+1)/2.
+            
+            
+            input_transformed_a = seg_transform()(im_a).unsqueeze(0)
+            input_transformed_b = seg_transform()(im_b).unsqueeze(0)
             output_a = self.segmentation_model(input_transformed_a).squeeze().max(0)[1]
             output_b = self.segmentation_model(input_transformed_b).squeeze().max(0)[1]
+            
             rgb_a = decode_segmap(output_a.cpu().numpy())
             rgb_b = decode_segmap(output_b.cpu().numpy())
             rgb_a = Image.fromarray(rgb_a).resize((x_a.size(3),x_a.size(3)))
@@ -274,8 +279,8 @@ class MUNIT_Trainer(nn.Module):
             rgb_b_list.append(transforms.ToTensor()(rgb_b).unsqueeze(0))
           
             # Inference semantic segmentation on fake images        
-            image_ab  = x_ab1[i].squeeze().cpu()
-            image_ba  = x_ba1[i].squeeze().cpu()
+            image_ab  = (x_ab1[i].squeeze()+1)/2.
+            image_ba  = (x_ba1[i].squeeze()+1)/2.
 
             input_transformed_ab = seg_transform()(image_ab).unsqueeze(0).to('cuda')
             input_transformed_ba = seg_transform()(image_ba).unsqueeze(0).to('cuda')
