@@ -98,8 +98,8 @@ while True:
         # Write images
         if (iterations + 1) % config['image_save_iter'] == 0:
             with torch.no_grad():
-                test_image_outputs = trainer.sample(test_display_images_a, test_display_images_b)
-                train_image_outputs = trainer.sample(train_display_images_a, train_display_images_b)
+                test_image_outputs  = trainer.sample_coco(test_display_images_a, test_display_images_b)
+                train_image_outputs = trainer.sample_coco(train_display_images_a, train_display_images_b)
             write_2images(test_image_outputs, display_size, image_directory, 'test_%08d' % \
                           (iterations + 1),comet_exp)
             write_2images(train_image_outputs, display_size, image_directory, 'train_%08d' % \
@@ -109,7 +109,7 @@ while True:
 
         if (iterations + 1) % config['image_display_iter'] == 0:
             with torch.no_grad():
-                image_outputs = trainer.sample(train_display_images_a, train_display_images_b)
+                image_outputs = trainer.sample_coco(train_display_images_a, train_display_images_b)
             write_2images(image_outputs, display_size, image_directory, 'train_current',comet_exp)
 
         # Save network weights
