@@ -254,7 +254,7 @@ class MUNIT_Trainer(nn.Module):
         x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
         x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
         x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
-        self.train()
+
         
         rgb_a_list,rgb_b_list,rgb_ab_list, rgb_ba_list  = [], [],[],[]
         ###############
@@ -298,7 +298,9 @@ class MUNIT_Trainer(nn.Module):
             rgb_ba_list.append(transforms.ToTensor()(rgb_ba).unsqueeze(0))
         ##########
         rgb1_a,rgb1_b,rgb1_ab,rgb1_ba = torch.cat(rgb_a_list).cuda(),torch.cat(rgb_b_list).cuda(),\
-                                        torch.cat(rgb_ab_list).cuda(),torch.cat(rgb_ba_list).cuda(), 
+                                        torch.cat(rgb_ab_list).cuda(),torch.cat(rgb_ba_list).cuda()
+        self.train()
+        self.segmentation_model.eval()
         return x_a, x_a_recon,rgb1_a, x_ab1, rgb1_ab, x_ab2, x_b, x_b_recon,rgb1_b, x_ba1,rgb1_ba,x_ba2
 
     def dis_update(self, x_a, x_b, hyperparameters,comet_exp=None):
