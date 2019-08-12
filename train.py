@@ -85,7 +85,9 @@ if config['semantic_w']==0:
             with Timer("Elapsed time in update: %f"):
                 # Main training code
                 trainer.dis_update(images_a, images_b, config,comet_exp)
-                trainer.gen_update(images_a, images_b, config,comet_exp)
+                trainer.gen_update(images_a, images_b, config,comet_exp=comet_exp)
+                if config['domain_adv_w']>0:
+                    trainer.domain_classifier_update(images_a, images_b, config,comet_exp)
                 torch.cuda.synchronize()
 
             # Dump training stats in log file
@@ -126,6 +128,8 @@ else:
                 # Main training code
                 trainer.dis_update(images_a, images_b, config,comet_exp)
                 trainer.gen_update(images_a, images_b, config,mask_a,mask_b,comet_exp)
+                if config['domain_adv_w']>0:
+                    trainer.domain_classifier_update(images_a, images_b, config,comet_exp)
                 torch.cuda.synchronize()
 
             # Dump training stats in log file

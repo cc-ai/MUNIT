@@ -4,7 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
 from comet_ml import Experiment
 from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen
-from utils import weights_init, get_model_list, vgg_preprocess, load_vgg16, get_scheduler,load_flood_classifier,transform_torchVar,seg_transform,load_segmentation_model,decode_segmap
+from utils import weights_init, get_model_list, vgg_preprocess, load_vgg16, get_scheduler,load_flood_classifier,transform_torchVar,seg_transform,load_segmentation_model,decode_segmap,domainClassifier
 from torch.autograd import Variable
 from torchvision import transforms
 import torch
@@ -21,6 +21,12 @@ class MUNIT_Trainer(nn.Module):
         self.newsize    = hyperparameters['new_size']
         self.semantic_w = hyperparameters['semantic_w']>0
         self.recon_mask = hyperparameters['recon_mask']==1
+        self.dann_scheduler =None
+        if 'domain_adv_w' in hyperparameters.keys():
+            self.domain_classif = hyperparameters['domain_adv_w'] > 0 
+        else:
+            self.domain_classif = False
+        
         if self.gen_state == 0:
             # Initiate the networks
             self.gen_a = AdaINGen(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a
@@ -79,6 +85,15 @@ class MUNIT_Trainer(nn.Module):
             for param in self.segmentation_model.parameters():
                 param.requires_grad = False
                 
+        # Load domain classifier if needed
+        if 'domain_adv_w' in hyperparameters.keys() and hyperparameters['domain_adv_w'] > 0:
+            self.domain_classifier = domainClassifier(256)
+            dann_params = list(self.domain_classifier.parameters())
+            self.dann_opt = torch.optim.Adam([p for p in dann_params if p.requires_grad],
+                            lr=lr, betas=(beta1, beta2), weight_decay=hyperparameters['weight_decay'])
+            self.domain_classifier.apply(weights_init('gaussian'))
+            self.dann_scheduler = get_scheduler(self.dann_opt, hyperparameters)
+            
     def recon_criterion(self, input, target):
         return torch.mean(torch.abs(input - target))
 
@@ -187,6 +202,10 @@ class MUNIT_Trainer(nn.Module):
         self.loss_sem_seg = self.compute_semantic_seg_loss(x_a.squeeze(), x_ab.squeeze(),mask_a) +\
                             self.compute_semantic_seg_loss(x_b.squeeze(), x_ba.squeeze(),mask_b) \
                             if hyperparameters['semantic_w'] > 0 else 0
+        # Domain adversarial loss (c_a and c_b are swapped because we want to the feature to be less informative 
+        # minmax (accuracy but max min loss)
+        self.domain_adv_loss =  self.compute_domain_adv_loss(c_b,c_a) if hyperparameters['domain_adv_w'] > 0 else 0
+        
         # total loss
         self.loss_gen_total = hyperparameters['gan_w'] * self.loss_gen_adv_a + \
                               hyperparameters['gan_w'] * self.loss_gen_adv_b + \
@@ -200,7 +219,8 @@ class MUNIT_Trainer(nn.Module):
                               hyperparameters['recon_x_cyc_w'] * self.loss_gen_cycrecon_x_b + \
                               hyperparameters['vgg_w'] * self.loss_gen_vgg_a + \
                               hyperparameters['vgg_w'] * self.loss_gen_vgg_b + \
-                              hyperparameters['semantic_w'] * self.loss_sem_seg 
+                              hyperparameters['semantic_w'] * self.loss_sem_seg +\
+                              hyperparameters['domain_adv_w'] * self.domain_adv_loss 
         
         if comet_exp is not None:
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a)
@@ -219,6 +239,8 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b)
             if hyperparameters['semantic_w']>0:
                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
+            if hyperparameters['domain_adv_w']>0:
+                comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
                 
         self.loss_gen_total.backward()
         self.gen_opt.step()
@@ -230,6 +252,20 @@ class MUNIT_Trainer(nn.Module):
         target_fea = vgg(target_vgg)
         return torch.mean((self.instancenorm(img_fea) - self.instancenorm(target_fea)) ** 2)
     
+    def compute_domain_adv_loss(self,c_a,c_b,compute_accuracy=False):
+        output_a = self.domain_classifier(c_a)
+        output_b = self.domain_classifier(c_b)
+
+        label_domain_a = torch.tensor([0]).cuda()
+        label_domain_b = torch.tensor([1]).cuda()
+
+        loss = nn.CrossEntropyLoss()(output_a.unsqueeze(0),label_domain_a)+\
+               nn.CrossEntropyLoss()(output_b.unsqueeze(0),label_domain_b)
+        if compute_accuracy: 
+            return loss,output_a[0],output_b[1]
+        else:
+            return loss
+        
     def compute_semantic_seg_loss(self, img1,img2, mask):
         # denorm 
         img1_denorm = (img1 + 1) / 2.
@@ -266,20 +302,38 @@ class MUNIT_Trainer(nn.Module):
                 c_b, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
                 x_a_recon.append(self.gen_a.decode(c_a, s_a_fake))
                 x_b_recon.append(self.gen_b.decode(c_b, s_b_fake))
-                x_ba1.append(self.gen_a.decode(c_b, s_a1[i].unsqueeze(0)))
-                x_ba2.append(self.gen_a.decode(c_b, s_a2[i].unsqueeze(0)))
-                x_ab1.append(self.gen_b.decode(c_a, s_b1[i].unsqueeze(0)))
-                x_ab2.append(self.gen_b.decode(c_a, s_b2[i].unsqueeze(0)))
+                if self.guided ==0:
+                    x_ba1.append(self.gen_a.decode(c_b, s_a1[i].unsqueeze(0)))
+                    x_ba2.append(self.gen_a.decode(c_b, s_a2[i].unsqueeze(0)))
+                    x_ab1.append(self.gen_b.decode(c_a, s_b1[i].unsqueeze(0)))
+                    x_ab2.append(self.gen_b.decode(c_a, s_b2[i].unsqueeze(0)))
+                elif self.guided ==1:
+                    x_ba1.append(self.gen_a.decode(c_b, s_a_fake)) #s_a1[i].unsqueeze(0)))
+                    x_ba2.append(self.gen_a.decode(c_b, s_a_fake)) #s_a2[i].unsqueeze(0)))
+                    x_ab1.append(self.gen_b.decode(c_a, s_b_fake)) #s_b1[i].unsqueeze(0)))
+                    x_ab2.append(self.gen_b.decode(c_a, s_b_fake)) #s_b2[i].unsqueeze(0)))
+                else:
+                    print('self.guided unknown value:',self.guided)
+                        
         elif self.gen_state==1:
             for i in range(x_a.size(0)):
                 c_a, s_a_fake = self.gen.encode(x_a[i].unsqueeze(0),1)
                 c_b, s_b_fake = self.gen.encode(x_b[i].unsqueeze(0),2)
                 x_a_recon.append(self.gen.decode(c_a, s_a_fake,1))
                 x_b_recon.append(self.gen.decode(c_b, s_b_fake,2))
-                x_ba1.append(self.gen.decode(c_b, s_a1[i].unsqueeze(0),1))
-                x_ba2.append(self.gen.decode(c_b, s_a2[i].unsqueeze(0),1))
-                x_ab1.append(self.gen.decode(c_a, s_b1[i].unsqueeze(0),2))
-                x_ab2.append(self.gen.decode(c_a, s_b2[i].unsqueeze(0),2))
+                if self.guided ==0:
+                    x_ba1.append(self.gen.decode(c_b, s_a1[i].unsqueeze(0),1))
+                    x_ba2.append(self.gen.decode(c_b, s_a2[i].unsqueeze(0),1))
+                    x_ab1.append(self.gen.decode(c_a, s_b1[i].unsqueeze(0),2))
+                    x_ab2.append(self.gen.decode(c_a, s_b2[i].unsqueeze(0),2))
+                elif self.guided ==1:
+                    x_ba1.append(self.gen.decode(c_b, s_a_fake,1)) #s_a1[i].unsqueeze(0)))
+                    x_ba2.append(self.gen.decode(c_b, s_a_fake,1)) #s_a2[i].unsqueeze(0)))
+                    x_ab1.append(self.gen.decode(c_a, s_b_fake,2)) #s_b1[i].unsqueeze(0)))
+                    x_ab2.append(self.gen.decode(c_a, s_b_fake,2)) #s_b2[i].unsqueeze(0)))
+                else:
+                    print('self.guided unknown value:',self.guided)
+                
         else:
             print('self.gen_state unknown value:',self.gen_state) 
            
@@ -344,8 +398,8 @@ class MUNIT_Trainer(nn.Module):
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
         if self.gen_state==0:
             # encode
-            c_a, _ = self.gen_a.encode(x_a)
-            c_b, _ = self.gen_b.encode(x_b)
+            c_a, s_a_prime = self.gen_a.encode(x_a)
+            c_b, s_b_prime = self.gen_b.encode(x_b)
             # decode (cross domain)
             if self.guided == 0 :
                 x_ba = self.gen_a.decode(c_b, s_a)
@@ -357,8 +411,8 @@ class MUNIT_Trainer(nn.Module):
                 print('self.guided unknown value:',self.guided)
         elif self.gen_state==1:
             # encode
-            c_a, _ = self.gen.encode(x_a,1)
-            c_b, _ = self.gen.encode(x_b,2)
+            c_a, s_a_prime = self.gen.encode(x_a,1)
+            c_b, s_b_prime = self.gen.encode(x_b,2)
             # decode (cross domain)
             if self.guided == 0 :
                 x_ba = self.gen.decode(c_b, s_a,1)
@@ -383,11 +437,40 @@ class MUNIT_Trainer(nn.Module):
         self.loss_dis_total.backward()
         self.dis_opt.step()
 
+        
+    def domain_classifier_update(self, x_a, x_b, hyperparameters,comet_exp=None):
+        self.dann_opt.zero_grad()
+        s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        if self.gen_state==0:
+            # encode
+            c_a, _ = self.gen_a.encode(x_a)
+            c_b, _ = self.gen_b.encode(x_b)
+        elif self.gen_state==1:
+            # encode
+            c_a, _ = self.gen.encode(x_a,1)
+            c_b, _ = self.gen.encode(x_b,2)
+        else:
+            print('self.gen_state unknown value:',self.gen_state) 
+            
+        # domain classifier loss
+        self.domain_class_loss,out_a,out_b = self.compute_domain_adv_loss(c_a,c_b,True) 
+        
+        if comet_exp is not None:
+            comet_exp.log_metric("domain_class_loss", self.domain_class_loss)
+            comet_exp.log_metric("probability A being identified as A", out_a)
+            comet_exp.log_metric("probability B being identified as B", out_b)
+            
+        self.domain_class_loss.backward()
+        self.dann_opt.step()
+        
     def update_learning_rate(self):
         if self.dis_scheduler is not None:
             self.dis_scheduler.step()
         if self.gen_scheduler is not None:
             self.gen_scheduler.step()
+        if self.dann_scheduler is not None:
+            self.dann_scheduler.step()
 
     def resume(self, checkpoint_dir, hyperparameters):
         # Load generators
@@ -400,7 +483,13 @@ class MUNIT_Trainer(nn.Module):
             self.gen.load_state_dict(state_dict['2'])
         else:
             print('self.gen_state unknown value:',self.gen_state)
-        
+            
+        #Load domain classifier 
+        if self.domain_classif == 1:
+            last_model_name = get_model_list(checkpoint_dir, "domain_classif")
+            state_dict = torch.load(last_model_name)
+            self.domain_classifier.load_state_dict(state_dict['d'])
+
         iterations = int(last_model_name[-11:-3])
         # Load discriminators
         last_model_name = get_model_list(checkpoint_dir, "dis")
@@ -411,6 +500,10 @@ class MUNIT_Trainer(nn.Module):
         state_dict = torch.load(os.path.join(checkpoint_dir, 'optimizer.pt'))
         self.dis_opt.load_state_dict(state_dict['dis'])
         self.gen_opt.load_state_dict(state_dict['gen'])
+        
+        if self.domain_classif == 1:
+            self.dann_opt.load_state_dict(state_dict['dann'])
+            self.dann_scheduler = get_scheduler(self.dann_opt, hyperparameters, iterations)
         # Reinitilize schedulers
         self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters, iterations)
         self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
@@ -421,6 +514,7 @@ class MUNIT_Trainer(nn.Module):
         # Save generators, discriminators, and optimizers
         gen_name = os.path.join(snapshot_dir, 'gen_%08d.pt' % (iterations + 1))
         dis_name = os.path.join(snapshot_dir, 'dis_%08d.pt' % (iterations + 1))
+        domain_classifier_name = os.path.join(snapshot_dir, 'domain_classifier_%08d.pt' % (iterations + 1))
         opt_name = os.path.join(snapshot_dir, 'optimizer.pt')
         if self.gen_state == 0:
             torch.save({'a': self.gen_a.state_dict(), 'b': self.gen_b.state_dict()}, gen_name)
@@ -429,7 +523,13 @@ class MUNIT_Trainer(nn.Module):
         else:
             print('self.gen_state unknown value:',self.gen_state)
         torch.save({'a': self.dis_a.state_dict(), 'b': self.dis_b.state_dict()}, dis_name)
-        torch.save({'gen': self.gen_opt.state_dict(), 'dis': self.dis_opt.state_dict()}, opt_name)
+        if self.domain_classif:
+            torch.save({'d': self.domain_classifier.state_dict()}, domain_classifier_name)
+            torch.save({'gen': self.gen_opt.state_dict(), 'dis': self.dis_opt.state_dict(), \
+                        'dann': self.dann_opt.state_dict()}, opt_name)
+        else:
+            torch.save({'gen': self.gen_opt.state_dict(), 'dis': self.dis_opt.state_dict()}, opt_name)
+            
 
 
 class UNIT_Trainer(nn.Module):
