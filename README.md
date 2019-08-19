@@ -114,7 +114,9 @@ Use `--resume` with the same `output_path` AND for now, for some reason, you nee
 
 ### Results
 
-@GAUTIER
+Output1             |  Output2
+:-------------------------:|:-------------------------:
+![](./results/house2flood/output013.jpg)  |  ![](./results/house2flood/output014.jpg)
 
 ### Experiments run
 
