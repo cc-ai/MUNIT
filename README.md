@@ -2,21 +2,21 @@
 
 This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT) for the needs of the [VICC project](https://github.com/cc-ai/kdb).
 
-- [VICC MUNIT](#vicc-munit)
-  - [How to use](#how-to-use)
-    - [Data](#data)
-      - [Type](#type)
-        - [Option 1](#option-1)
-      - [Option 2](#option-2)
-      - [Storage](#storage)
-        - [Online](#online)
-        - [Mila Cluster](#mila-cluster)
-    - [Train](#train)
-      - [Continue training](#continue-training)
-    - [Test](#test)
-    - [Modifications to the original MUNIT](#modifications-to-the-original-munit)
-    - [Results](#results)
-    - [Experiments run](#experiments-run)
+## How to Use
+
+  - [Data](#data)
+    - [Type](#type)
+      - [Option 1](#option-1)
+    - [Option 2](#option-2)
+    - [Storage](#storage)
+      - [Online](#online)
+      - [Mila Cluster](#mila-cluster)
+  - [Train](#train)
+    - [Continue training](#continue-training)
+  - [Test](#test)
+  - [Modifications to the original MUNIT](#modifications-to-the-original-munit)
+  - [Results](#results)
+  - [Experiments run](#experiments-run)
 
 ## How to use
 
@@ -74,12 +74,28 @@ Raw data is located in `/network/tmp1/ccai/data`
 
 ### Train
 
+Specify the parameters in the config `yaml`.
+
+Simply train!
+
+```
+python train.py --config configs/house2flooded_house256.yaml
+```
+
 #### Continue training
 
+Use `--resume` with the same `output_path` AND for now, for some reason, you need to use the **same name** for the config file...
+
 ### Test
+
+@GAUTIER
 
 ### Modifications to the original MUNIT
 
 ### Results
 
+@GAUTIER
+
 ### Experiments run
+
+https://docs.google.com/spreadsheets/d/1Csdi2B-LJPChLwO1ng4i2sjPgQxrNRlempa05o3a7og/edit?usp=sharing
