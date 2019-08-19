@@ -644,9 +644,16 @@ def write_loss(iterations, trainer, train_writer):
 
 def slerp(val, low, high):
     """
+    Spherical linear interpolation (slerp)
     original: Animating Rotation with Quaternion Curves, Ken Shoemake
     https://arxiv.org/abs/1609.04468
     Code: https://github.com/soumith/dcgan.torch/issues/14, Tom White
+    Arguments:
+        val {float} -- mean in Gaussian prior
+        low {float} -- smallest value in the interpolation
+        high {float} -- highest value in the interpolation
+    Returns:
+        slerp value
     """
     omega = np.arccos(np.dot(low / np.linalg.norm(low), high / np.linalg.norm(high)))
     so = np.sin(omega)
@@ -674,6 +681,15 @@ def get_slerp_interp(nb_latents, nb_interp, z_dim):
 
 # Get model list for resume
 def get_model_list(dirname, key):
+    """get last model in dirname, whose name contain key
+    
+    Arguments:
+        dirname {str} -- directory name
+        key {str} -- "key" in the model name
+    
+    Returns:
+        last_model_name {str} -- last model name 
+    """
     if os.path.exists(dirname) is False:
         return None
     gen_models = [
@@ -689,7 +705,15 @@ def get_model_list(dirname, key):
 
 
 def load_vgg16(model_dir):
-    """ Use the model from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py """
+    """Load vgg16 model
+    from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py
+    
+    Arguments:
+        model_dir {str} -- directory where the model is / where to put the model
+    
+    Returns:
+        model -- vgg16 model 
+    """
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
     if not os.path.exists(os.path.join(model_dir, "vgg16.weight")):
@@ -762,6 +786,14 @@ class Resnet34_8s(nn.Module):
 
 
 def load_segmentation_model(ckpt_path):
+    """load Resnet34 segmentation model with output stride 8 from checkpoint
+    
+    Arguments:
+        ckpt_path {str} -- checkpoint path
+    
+    Returns:
+        model -- segmentation model
+    """
     model = Resnet34_8s(num_classes=19).to("cuda")
     model.load_state_dict(torch.load(ckpt_path))
     return model
@@ -770,8 +802,11 @@ def load_segmentation_model(ckpt_path):
 # Define the helper function
 def decode_segmap(image, nc=19):
     """Creates a label colormap used in CITYSCAPES segmentation benchmark.
+    Arguments:
+        image {array} -- segmented image 
+        (array of image size containing classat each pixel)
     Returns:
-    A colormap for visualizing segmentation results.
+        array of size 3*nc -- A colormap for visualizing segmentation results.
     """
     colormap = np.zeros((19, 3), dtype=np.uint8)
     colormap[0] = [128, 64, 128]
@@ -809,6 +844,14 @@ def decode_segmap(image, nc=19):
 
 
 def load_inception(model_path):
+    """Load Inception model
+    
+    Arguments:
+        model_path {str} -- model path
+    
+    Returns:
+        model -- Inception model
+    """         
     state_dict = torch.load(model_path)
     model = inception_v3(pretrained=False, transform_input=True)
     model.aux_logits = False
@@ -821,6 +864,8 @@ def load_inception(model_path):
 
 
 def vgg_preprocess(batch):
+    """Preprocess batch to use VGG model
+    """
     tensortype = type(batch.data)
     (r, g, b) = torch.chunk(batch, 3, dim=1)
     batch = torch.cat((b, g, r), dim=1)  # convert RGB to BGR
@@ -988,8 +1033,14 @@ def pytorch03_to_pytorch04(state_dict_base, trainer_name):
 
 # Domain adversarial loss (define a classifier on top of the feature extracted)
 def conv_block(in_channels, out_channels):
-    """
-    returns a block conv-bn-relu-pool
+    """returns a block Convolution - batch normalization - ReLU - Pooling
+    
+    Arguments:
+        in_channels {int} -- Number of channels in the input image
+        out_channels {int} -- Number of channels produced by the convolution
+    
+    Returns:
+        block -- Convolution - batch normalization - ReLU - Pooling
     """
     return nn.Sequential(
         nn.Conv2d(in_channels, out_channels, 3, padding=1),
