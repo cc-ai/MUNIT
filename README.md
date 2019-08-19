@@ -22,6 +22,26 @@ This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT
 
 Everything in MUNIT is configurable through a `.yaml` file, which can be found in `configs/`. Currently we use [`house2flooded_house256.yaml`](https://github.com/cc-ai/MUNIT/blob/master/configs/house2flooded_house256.yaml)
 
+If you use `train.py` you ***need*** to have the `comet.ml` configuration variables set. Here is the hierarchy:
+
+1. An argument passed to Experiment()
+2. An environment variable
+3. A setting in the .comet.config file in your current folder
+4. A setting in the .comet.config file in your `$HOME` directory
+
+In order not to change every time and comit unnecessarily, it is recommended not to use 1.
+
+For instance, you can have this file as `MUNIT/.comet.config` (which is ignored by git):
+
+```
+[comet]
+api_key=YOUR-API-KEY
+workspace=YOUR-WORKSPACE
+project_name=THE-PROJECT
+```
+
+Or only the first 2 variables and `$ COMET_PROJECT_NAME=My-Project python train.py --config ...`. For more, [see docs](https://www.comet.ml/docs/python-sdk/advanced/#comet-configuration-variables)
+
 ### Data
 
 Munit expects 2 locations with unpaired images.
