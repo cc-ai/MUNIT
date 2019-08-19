@@ -23,15 +23,16 @@ import time
 from resnet import resnet34
 
 # Methods
-# get_all_data_loaders      : primary data loader interface (load trainA, testA, trainB, testB)
-# get_data_loader_list      : list-based data loader
-# get_data_loader_folder    : folder-based data loader
-# get_config                : load yaml file
-# eformat                   :
-# write_2images             : save output image
-# prepare_sub_folder        : create checkpoints and images folders for saving outputs
-# write_one_row_html        : write one row of the html file for output images
-# write_html                : create the html file.
+# get_all_data_loaders          : primary data loader interface (load trainA, testA, trainB, testB)
+# get_data_loader_list          : list-based data loader
+# get_data_loader_folder        : folder-based data loader
+# get_data_loader_mask_and_im   : masks and images lists-based data loader
+# get_config                    : load yaml file
+# eformat                       :
+# write_2images                 : save output image
+# prepare_sub_folder            : create checkpoints and images folders for saving outputs
+# write_one_row_html            : write one row of the html file for output images
+# write_html                    : create the html file.
 # write_loss
 # slerp
 # get_slerp_interp
@@ -43,8 +44,18 @@ from resnet import resnet34
 # get_scheduler
 # weights_init
 
+# Worlds for the GAN will be called A and B
 
 def get_all_data_loaders(conf):
+"""primary data loader interface (load trainA, testA, trainB, testB)
+
+Arguments:
+    conf {dict} -- configuration dictionary
+
+Returns:
+    train_loader_a, train_loader_b, test_loader_a, test_loader_b
+     -- data loaders for test and train sets in worlds A and B 
+"""
     batch_size = conf["batch_size"]
     num_workers = conf["num_workers"]
     if "new_size" in conf:
@@ -145,6 +156,10 @@ def get_all_data_loaders(conf):
 
 
 def seg_transform():
+    """
+    Transformations for segmentation model.
+    The parameters for normalization are those corresponding to the ImageNet dataset
+    """
     segmentation_transform = transforms.Compose(
         [transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))]
     )
@@ -152,6 +167,8 @@ def seg_transform():
 
 
 def transform_torchVar():
+    """Transformations for a Torch Tensor.
+    """
     transfo = transforms.Compose(
         [
             transforms.ToPILImage(),
@@ -175,6 +192,25 @@ def get_data_loader_list(
     num_workers=4,
     crop=True,
 ):
+""" List-based data loader with transformations
+ (horizontal flip, resizing, random crop, normalization are handled)
+
+Arguments:
+    root {str} -- path root 
+    file_list {str list} -- list of the file names
+    batch_size {int} -- 
+    train {bool} -- training mode
+
+Keyword Arguments:
+    new_size {int} -- parameter for resizing (default: {None})
+    height {int} -- dimension for random cropping (default: {256})
+    width {int} -- dimension for random cropping (default: {256})
+    num_workers {int} -- number of workers (default: {4})
+    crop {bool} -- crop(default: {True})
+
+Returns:
+    loader -- data loader with transformed dataset
+"""
     transform_list = [
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -208,7 +244,11 @@ def get_data_loader_list(
 
 def default_txt_reader(flist):
     """
-    txt format: impath \n
+    Arguments:
+        flist {str} -- path to text file with txt format: impath \n
+
+    Returns:
+        list of strings, each corresponding to one line of the input file
     """
     imlist = []
     with open(flist, "r") as rf:
@@ -219,6 +259,9 @@ def default_txt_reader(flist):
 
 
 class MyDataset(Dataset):
+    """
+    Dataset class for images and masks filenames inputs
+    """
     def __init__(self, file_list, mask_list, new_size, height, width):
         self.image_paths = default_txt_reader(file_list)
         self.target_paths = default_txt_reader(mask_list)
@@ -227,9 +270,16 @@ class MyDataset(Dataset):
         self.width = width
 
     def transform(self, image, mask):
-
-        # print('debugging mask transform 1 size',mask.size)
-
+        """Apply transformations to image and corresponding mask.
+        Transformations applied are:
+            random horizontal flipping, resizing, random cropping and normalizing
+        Arguments:
+            image {Image} -- Image
+            mask {Image} -- Mask
+        
+        Returns:
+            image, mask {Image, Image} -- transformed image and mask
+        """
         # Random horizontal flipping
         if torch.rand(1) > 0.5:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
@@ -270,12 +320,25 @@ class MyDataset(Dataset):
         return image, mask
 
     def __getitem__(self, index):
+        """Get transformed image and mask at index index in the dataset
+        
+        Arguments:
+            index {int} -- index at which to get image, mask pair
+        
+        Returns:
+            image, mask pair
+        """
         image = Image.open(self.image_paths[index][0]).convert("RGB")
         mask = Image.open(self.target_paths[index][0])
         x, y = self.transform(image, mask)
         return x, y
 
     def __len__(self):
+        """return dataset length
+        
+        Returns:
+            int -- dataset length
+        """
         return len(self.image_paths)
 
 
@@ -290,7 +353,25 @@ def get_data_loader_mask_and_im(
     num_workers=4,
     crop=True,
 ):
+    """Masks and images lists-based data loader with transformations
+ (horizontal flip, resizing, random crop, normalization are handled)
+    
+    Arguments:
+        file_list {str list} -- list of images filenames
+        mask_list {str list} -- list of masks filenames
+        batch_size {int} -- batch size
+        train {bool} -- training
+    
+    Keyword Arguments:
+        new_size {int} -- parameter for resizing (default: {None})
+        height {int} -- dimension for random cropping (default: {256})
+        width {int} -- dimension for random cropping (default: {256})
+        num_workers {int} -- number of workers (default: {4})
+        crop {bool} -- crop(default: {True})
 
+    Returns:
+        loader -- data loader with transformed dataset
+    """
     dataset = MyDataset(file_list, mask_list, new_size, height, width)
     loader = DataLoader(
         dataset=dataset,
@@ -312,6 +393,27 @@ def get_data_loader_folder(
     num_workers=4,
     crop=True,
 ):
+"""Folder-based data loader with transformations
+ (horizontal flip, resizing, random crop, normalization are handled)
+
+Arguments:
+    input_folder {str} -- path to folder with input images
+    batch_size {int} -- batch size
+    train {bool} -- training 
+
+Keyword Arguments:
+   new_size {int} -- parameter for resizing (default: {None})
+    height {int} -- dimension for random cropping (default: {256})
+    width {int} -- dimension for random cropping (default: {256})
+    num_workers {int} -- number of workers (default: {4})
+    crop {bool} -- crop(default: {True})
+
+Returns:
+    loader -- data loader with transformed dataset
+
+Returns:
+    [type] -- [description]
+"""
     transform_list = [
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -344,6 +446,14 @@ def get_data_loader_folder(
 
 
 def get_config(config):
+    """Parse config yaml file
+    
+    Arguments:
+        config {str} -- path to yaml config file
+    
+    Returns:
+        dict -- parsed yaml file
+    """
     with open(config, "r") as stream:
         return yaml.load(stream)
 
@@ -356,6 +466,12 @@ def eformat(f, prec):
 
 
 def __write_images(image_outputs, display_image_num, file_name):
+    """Save output image
+    Arguments:
+        image_outputs {Tensor list} -- list of output images
+        display_image_num {int} -- number of images to be displayed
+        file_name {str} -- name of the file where to save the images
+    """
     image_outputs = [
         images.expand(-1, 3, -1, -1) for images in image_outputs
     ]  # expand gray-scale images to 3 channels
@@ -371,6 +487,17 @@ def __write_images(image_outputs, display_image_num, file_name):
 def write_2images(
     image_outputs, display_image_num, image_directory, postfix, comet_exp=None
 ):
+    """Write images from both worlds a and b of the cycle  A-B-A as jpg
+    Arguments:
+        image_outputs {Tensor list} -- list of images, the first half being outputs in B, 
+                                        the second half being outputs in A
+        display_image_num {int} -- number of images to be displayed
+        image_directory {str} -- 
+        postfix {str} -- postfix to filename
+    
+    Keyword Arguments:
+        comet_exp {Comet experience} --  (default: {None})
+    """
     n = len(image_outputs)
     __write_images(
         image_outputs[0 : n // 2],
@@ -388,6 +515,14 @@ def write_2images(
 
 
 def prepare_sub_folder(output_directory):
+    """Create images and checkpoints subfolders in output directory
+    
+    Arguments:
+        output_directory {str} -- output directory
+    
+    Returns:
+        checkpoint_directory, image_directory-- checkpoints and images directories
+    """
     image_directory = os.path.join(output_directory, "images")
     if not os.path.exists(image_directory):
         print("Creating directory: {}".format(image_directory))
@@ -400,6 +535,14 @@ def prepare_sub_folder(output_directory):
 
 
 def write_one_row_html(html_file, iterations, img_filename, all_size):
+    """Write one HTML row with specified image
+    
+    Arguments:
+        html_file {str} -- html filename
+        iterations {int} -- iteration (step) corresponding to the image
+        img_filename {str} -- image filename
+        all_size {int} -- width in pixels of the displayed image
+    """
     html_file.write(
         "<h3>iteration [%d] (%s)</h3>" % (iterations, img_filename.split("/")[-1])
     )
@@ -418,6 +561,19 @@ def write_one_row_html(html_file, iterations, img_filename, all_size):
 def write_html(
     filename, iterations, image_save_iterations, image_directory, all_size=1536
 ):
+    """Write HTML to display experiments' results (images).
+    The images displayed will be those from both worlds A and B in the GAN cycle
+    taken every image_save_iterations until step interations. 
+
+    Arguments:
+        filename {str} -- HTML filename
+        iterations {int} -- iteration corresponding to the last image to be saved
+        image_save_iterations {int} -- number of iterations between each saved image
+        image_directory {str} -- image diretory
+    
+    Keyword Arguments:
+        all_size {int} -- width in pixels of the images to be displayed(default: {1536})
+    """
     html_file = open(filename, "w")
     html_file.write(
         """
@@ -446,7 +602,7 @@ def write_html(
     )
     for j in range(iterations, image_save_iterations - 1, -1):
         if j % image_save_iterations == 0:
-            wrseg_transformite_one_row_html(
+            write_one_row_html(
                 html_file,
                 j,
                 "%s/gen_a2b_test_%08d.jpg" % (image_directory, j),
@@ -553,6 +709,14 @@ def load_vgg16(model_dir):
 
 
 def load_flood_classifier(ckpt_path):
+    """ Load flood classifier based on a pretrained resnet18 network.
+    
+    Arguments:
+        ckpt_path {str} -- path to checkpoint
+    
+    Returns:
+        model -- flood classifier model
+    """
     model = models.resnet18(pretrained=True)
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, 2)
@@ -670,6 +834,16 @@ def vgg_preprocess(batch):
 
 
 def get_scheduler(optimizer, hyperparameters, iterations=-1):
+    """Returns a learning rate scheduler such that the learning rate of each parameter group is set to the initial 
+    lr decayed by hyperparameter gamma every step_size epochs when a learning rate policy is specified in the hyperparameters.
+    When iterations=-1, sets initial lr as lr.
+    Arguments:
+        optimizer {Optimizer} -- Wrapped optimizer
+        hyperparameters {} -- Hyperparameters parsed from config yaml file
+    
+    Keyword Arguments:
+        iterations {int} -- index of the last epoch (default: {-1})
+    """
     if "lr_policy" not in hyperparameters or hyperparameters["lr_policy"] == "constant":
         scheduler = None  # constant scheduler
     elif hyperparameters["lr_policy"] == "step":
@@ -826,7 +1000,20 @@ def conv_block(in_channels, out_channels):
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
-    """3x3 convolution with padding"""
+    """3x3 convolution with padding
+    
+    Arguments:
+        in_planes {int} -- Number of channels in the input image
+        out_planes {int} -- Number of channels produced by the convolution
+    
+    Keyword Arguments:
+        stride {int or tuple, optional} -- Stride of the convolution. Default: 1 (default: {1})
+        groups {int, optional} -- Number of blocked connections from input channels to output channels.tion] (default: {1})
+        dilation {int or tuple, optional} -- Spacing between kernel elements (default: {1})
+    
+    Returns:
+        output layer of 3x3 convolution with padding
+    """
     return nn.Conv2d(
         in_planes,
         out_planes,
@@ -840,7 +1027,14 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
 
 
 def conv1x1(in_planes, out_planes, stride=1):
-    """1x1 convolution"""
+    """1x1 convolution
+    Arguments:
+        in_planes {int} -- Number of channels in the input image
+        out_planes {int} -- Number of channels produced by the convolution
+    
+    Keyword Arguments:
+        stride {int or tuple, optional} -- Stride of the convolution. Default: 1 (default: {1})
+    """
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
