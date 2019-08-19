@@ -14,3 +14,4 @@ src/yaml_generator.py
 *.zip
 *.pkl
 *.pyc
+.comet.config
