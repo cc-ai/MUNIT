@@ -114,9 +114,22 @@ Use `--resume` with the same `output_path` AND for now, for some reason, you nee
 
 ### Results
 
-Output1             |  Output2
-:-------------------------:|:-------------------------:
-![](./results/house2flood/output013.jpg)  |  ![](./results/house2flood/output014.jpg)
+<div class="row">
+  <div class="column">
+    <img src="./results/house2flood/output013.jpg" alt="Snow" style="width:100%" width="300">
+  </div>
+  <div class="column">
+    <img src="./results/house2flood/48cjABBpw7KOlHr7CF5NCwback.png" alt="Forest" style="width:25%" width="300">
+  </div>
+</div>
+<div class="row">
+  <div class="column">
+    <img src="./results/house2flood/output014.jpg" alt="Snow" style="width:100%" width="300">
+  </div>
+  <div class="column">
+    <img src="./results/house2flood/lUe1NopJ06oT4267RwDs0Aback.png" alt="Forest" style="width:25%" width="300">
+  </div>
+</div>
 
 ### Experiments run
 
