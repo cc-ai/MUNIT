@@ -5,8 +5,9 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 import torch.utils.data as data
 import os.path
 
+
 def default_loader(path):
-    return Image.open(path).convert('RGB')
+    return Image.open(path).convert("RGB")
 
 
 def default_flist_reader(flist):
@@ -14,7 +15,7 @@ def default_flist_reader(flist):
     flist format: impath label\nimpath label\n ...(same to caffe's filelist)
     """
     imlist = []
-    with open(flist, 'r') as rf:
+    with open(flist, "r") as rf:
         for line in rf.readlines():
             impath = line.strip()
             imlist.append(impath)
@@ -23,8 +24,14 @@ def default_flist_reader(flist):
 
 
 class ImageFilelist(data.Dataset):
-    def __init__(self, root, flist, transform=None,
-                 flist_reader=default_flist_reader, loader=default_loader):
+    def __init__(
+        self,
+        root,
+        flist,
+        transform=None,
+        flist_reader=default_flist_reader,
+        loader=default_loader,
+    ):
         self.root = root
         self.imlist = flist_reader(flist)
         self.transform = transform
@@ -43,15 +50,23 @@ class ImageFilelist(data.Dataset):
 
 
 class ImageLabelFilelist(data.Dataset):
-    def __init__(self, root, flist, transform=None,
-                 flist_reader=default_flist_reader, loader=default_loader):
+    def __init__(
+        self,
+        root,
+        flist,
+        transform=None,
+        flist_reader=default_flist_reader,
+        loader=default_loader,
+    ):
         self.root = root
         self.imlist = flist_reader(os.path.join(self.root, flist))
         self.transform = transform
         self.loader = loader
-        self.classes = sorted(list(set([path.split('/')[0] for path in self.imlist])))
+        self.classes = sorted(list(set([path.split("/")[0] for path in self.imlist])))
         self.class_to_idx = {self.classes[i]: i for i in range(len(self.classes))}
-        self.imgs = [(impath, self.class_to_idx[impath.split('/')[0]]) for impath in self.imlist]
+        self.imgs = [
+            (impath, self.class_to_idx[impath.split("/")[0]]) for impath in self.imlist
+        ]
 
     def __getitem__(self, index):
         impath, label = self.imgs[index]
@@ -62,6 +77,7 @@ class ImageLabelFilelist(data.Dataset):
 
     def __len__(self):
         return len(self.imgs)
+
 
 ###############################################################################
 # Code from
@@ -77,8 +93,16 @@ import os
 import os.path
 
 IMG_EXTENSIONS = [
-    '.jpg', '.JPG', '.jpeg', '.JPEG',
-    '.png', '.PNG', '.ppm', '.PPM', '.bmp', '.BMP',
+    ".jpg",
+    ".JPG",
+    ".jpeg",
+    ".JPEG",
+    ".png",
+    ".PNG",
+    ".ppm",
+    ".PPM",
+    ".bmp",
+    ".BMP",
 ]
 
 
@@ -88,7 +112,7 @@ def is_image_file(filename):
 
 def make_dataset(dir):
     images = []
-    assert os.path.isdir(dir), '%s is not a valid directory' % dir
+    assert os.path.isdir(dir), "%s is not a valid directory" % dir
 
     for root, _, fnames in sorted(os.walk(dir)):
         for fname in fnames:
@@ -100,14 +124,15 @@ def make_dataset(dir):
 
 
 class ImageFolder(data.Dataset):
-
-    def __init__(self, root, transform=None, return_paths=False,
-                 loader=default_loader):
+    def __init__(self, root, transform=None, return_paths=False, loader=default_loader):
         imgs = sorted(make_dataset(root))
         if len(imgs) == 0:
-            raise(RuntimeError("Found 0 images in: " + root + "\n"
-                               "Supported image extensions are: " +
-                               ",".join(IMG_EXTENSIONS)))
+            raise (
+                RuntimeError(
+                    "Found 0 images in: " + root + "\n"
+                    "Supported image extensions are: " + ",".join(IMG_EXTENSIONS)
+                )
+            )
 
         self.root = root
         self.imgs = imgs
