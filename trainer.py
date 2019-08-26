@@ -135,7 +135,8 @@ class MUNIT_Trainer(nn.Module):
             self.dann_scheduler = get_scheduler(self.dann_opt, hyperparameters)
 
     def recon_criterion(self, input, target):
-        """Compute pixelwise L1 loss between two images input and target
+        """
+        Compute pixelwise L1 loss between two images input and target
         
         Arguments:
             input {torch.Tensor} -- Image tensor
@@ -147,7 +148,8 @@ class MUNIT_Trainer(nn.Module):
         return torch.mean(torch.abs(input - target))
 
     def recon_criterion_mask(self, input, target, mask):
-        """Compute a weaker version of the recon_criterion between two images input and target 
+        """
+        Compute a weaker version of the recon_criterion between two images input and target 
         where the L1 is only computed on the unmasked region
         
         Arguments:
@@ -161,7 +163,8 @@ class MUNIT_Trainer(nn.Module):
         return torch.mean(torch.abs(torch.mul((input - target), 1 - mask)))
 
     def forward(self, x_a, x_b):
-        """Perform the translation from domain A (resp B) to domain B (resp A): x_a to x_ab (resp: x_b to x_ba).
+        """
+        Perform the translation from domain A (resp B) to domain B (resp A): x_a to x_ab (resp: x_b to x_ba).
         
         Arguments:
             x_a {torch.Tensor} -- Image from domain A after transform in tensor format
@@ -191,21 +194,22 @@ class MUNIT_Trainer(nn.Module):
     def gen_update(
         self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None
     ):
-    """Update the generator parameters
-    
-    Arguments:
-        x_a {torch.Tensor} -- Image from domain A after transform in tensor format
-        x_b {torch.Tensor} -- Image from domain B after transform in tensor format
-        hyperparameters {dictionnary} -- dictionnary with all hyperparameters 
-    
-    Keyword Arguments:
-        mask_a {torch.Tensor} -- binary mask (0,1) corresponding to the ground in x_a (default: {None})
-        mask_b {torch.Tensor} -- binary mask (0,1) corresponding to the water in x_b (default: {None})
-        comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})
-    
-    Returns:
-        [type] -- [description]
-    """
+        """
+        Update the generator parameters
+
+        Arguments:
+            x_a {torch.Tensor} -- Image from domain A after transform in tensor format
+            x_b {torch.Tensor} -- Image from domain B after transform in tensor format
+            hyperparameters {dictionnary} -- dictionnary with all hyperparameters 
+
+        Keyword Arguments:
+            mask_a {torch.Tensor} -- binary mask (0,1) corresponding to the ground in x_a (default: {None})
+            mask_b {torch.Tensor} -- binary mask (0,1) corresponding to the water in x_b (default: {None})
+            comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})
+
+        Returns:
+            [type] -- [description]
+        """
         self.gen_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -326,7 +330,7 @@ class MUNIT_Trainer(nn.Module):
             if hyperparameters["semantic_w"] > 0
             else 0
         )
-        # Domain adversarial loss (c_a and c_b are swapped because we want to the feature to be less informative
+        # Domain adversarial loss (c_a and c_b are swapped because we want the feature to be less informative
         # minmax (accuracy but max min loss)
         self.domain_adv_loss = (
             self.compute_domain_adv_loss(c_b, c_a)
@@ -376,7 +380,8 @@ class MUNIT_Trainer(nn.Module):
         self.gen_opt.step()
 
     def compute_vgg_loss(self, vgg, img, target):
-        """ Compute the domain-invariant perceptual loss
+        """ 
+        Compute the domain-invariant perceptual loss
         
         Arguments:
             vgg {model} -- popular Convolutional Network for Classification and Detection
@@ -395,7 +400,8 @@ class MUNIT_Trainer(nn.Module):
         )
 
     def compute_domain_adv_loss(self, c_a, c_b, compute_accuracy=False):
-        """ Compute a domain adversarial loss on the embedding of the classifier:
+        """ 
+        Compute a domain adversarial loss on the embedding of the classifier:
         we are trying to learn an anonymized representation of the content. 
         
         Arguments:
@@ -424,7 +430,8 @@ class MUNIT_Trainer(nn.Module):
             return loss
 
     def compute_semantic_seg_loss(self, img1, img2, mask):
-        """ Compute semantic segmentation loss between two images on the unmasked region
+        """ 
+        Compute semantic segmentation loss between two images on the unmasked region
         
         Arguments:
             img1 {torch.Tensor} -- Image from domain A after transform in tensor format
@@ -463,7 +470,8 @@ class MUNIT_Trainer(nn.Module):
         return loss
 
     def sample(self, x_a, x_b):
-        """ Infer the model on a batch of image
+        """ 
+        Infer the model on a batch of image
         
         Arguments:
             x_a {torch.Tensor} -- batch of image from domain A
@@ -471,7 +479,8 @@ class MUNIT_Trainer(nn.Module):
         
         Returns:
             A list of torch images -- columnwise :x_a, autoencode(x_a), x_ab_1, x_ab_2
-            Or if self.semantic_w is true: x_a, autoencode(x_a), Semantic segmentation x_a, x_ab_1,semantic segmentation x_ab_1, x_ab_2
+            Or if self.semantic_w is true: x_a, autoencode(x_a), Semantic segmentation x_a, 
+            x_ab_1,semantic segmentation x_ab_1, x_ab_2
         """
         self.eval()
         s_a1 = Variable(self.s_a)
@@ -618,7 +627,8 @@ class MUNIT_Trainer(nn.Module):
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
     def dis_update(self, x_a, x_b, hyperparameters, comet_exp=None):
-        """Update the weights of the discriminator
+        """
+        Update the weights of the discriminator
         
         Arguments:
             x_a {torch.Tensor} -- Image from domain A after transform in tensor format
@@ -676,7 +686,8 @@ class MUNIT_Trainer(nn.Module):
         self.dis_opt.step()
 
     def domain_classifier_update(self, x_a, x_b, hyperparameters, comet_exp=None):
-        """Update the weights of the domain classifier
+        """
+        Update the weights of the domain classifier
         
         Arguments:
             x_a {torch.Tensor} -- Image from domain A after transform in tensor format
@@ -714,7 +725,8 @@ class MUNIT_Trainer(nn.Module):
         self.dann_opt.step()
 
     def update_learning_rate(self):
-        """ Update the learning rate
+        """ 
+        Update the learning rate
         """
         if self.dis_scheduler is not None:
             self.dis_scheduler.step()
@@ -724,7 +736,8 @@ class MUNIT_Trainer(nn.Module):
             self.dann_scheduler.step()
 
     def resume(self, checkpoint_dir, hyperparameters):
-        """Resume the training loading the network parameters
+        """
+        Resume the training loading the network parameters
         
         Arguments:
             checkpoint_dir {string} -- path to the directory where the checkpoints are saved
@@ -773,7 +786,8 @@ class MUNIT_Trainer(nn.Module):
         return iterations
 
     def save(self, snapshot_dir, iterations):
-        """Save generators, discriminators, and optimizers
+        """
+        Save generators, discriminators, and optimizers
         
         Arguments:
             snapshot_dir {string} -- directory path where to save the networks weights

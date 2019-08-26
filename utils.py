@@ -47,15 +47,15 @@ from resnet import resnet34
 # Worlds for the GAN will be called A and B
 
 def get_all_data_loaders(conf):
-"""primary data loader interface (load trainA, testA, trainB, testB)
+    """primary data loader interface (load trainA, testA, trainB, testB)
 
-Arguments:
-    conf {dict} -- configuration dictionary
+    Arguments:
+        conf {dict} -- configuration dictionary
 
-Returns:
-    train_loader_a, train_loader_b, test_loader_a, test_loader_b
-     -- data loaders for test and train sets in worlds A and B 
-"""
+    Returns:
+        train_loader_a, train_loader_b, test_loader_a, test_loader_b
+         -- data loaders for test and train sets in worlds A and B 
+    """
     batch_size = conf["batch_size"]
     num_workers = conf["num_workers"]
     if "new_size" in conf:
@@ -191,26 +191,26 @@ def get_data_loader_list(
     width=256,
     num_workers=4,
     crop=True,
-):
-""" List-based data loader with transformations
- (horizontal flip, resizing, random crop, normalization are handled)
+    ):
+    """ List-based data loader with transformations
+     (horizontal flip, resizing, random crop, normalization are handled)
 
-Arguments:
-    root {str} -- path root 
-    file_list {str list} -- list of the file names
-    batch_size {int} -- 
-    train {bool} -- training mode
+    Arguments:
+        root {str} -- path root 
+        file_list {str list} -- list of the file names
+        batch_size {int} -- 
+        train {bool} -- training mode
 
-Keyword Arguments:
-    new_size {int} -- parameter for resizing (default: {None})
-    height {int} -- dimension for random cropping (default: {256})
-    width {int} -- dimension for random cropping (default: {256})
-    num_workers {int} -- number of workers (default: {4})
-    crop {bool} -- crop(default: {True})
+    Keyword Arguments:
+        new_size {int} -- parameter for resizing (default: {None})
+        height {int} -- dimension for random cropping (default: {256})
+        width {int} -- dimension for random cropping (default: {256})
+        num_workers {int} -- number of workers (default: {4})
+        crop {bool} -- crop(default: {True})
 
-Returns:
-    loader -- data loader with transformed dataset
-"""
+    Returns:
+        loader -- data loader with transformed dataset
+    """
     transform_list = [
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -352,9 +352,10 @@ def get_data_loader_mask_and_im(
     width=256,
     num_workers=4,
     crop=True,
-):
-    """Masks and images lists-based data loader with transformations
- (horizontal flip, resizing, random crop, normalization are handled)
+    ):
+    """
+    Masks and images lists-based data loader with transformations
+    (horizontal flip, resizing, random crop, normalization are handled)
     
     Arguments:
         file_list {str list} -- list of images filenames
@@ -392,28 +393,29 @@ def get_data_loader_folder(
     width=256,
     num_workers=4,
     crop=True,
-):
-"""Folder-based data loader with transformations
- (horizontal flip, resizing, random crop, normalization are handled)
+    ):
+    """
+    Folder-based data loader with transformations
+     (horizontal flip, resizing, random crop, normalization are handled)
 
-Arguments:
-    input_folder {str} -- path to folder with input images
-    batch_size {int} -- batch size
-    train {bool} -- training 
+    Arguments:
+        input_folder {str} -- path to folder with input images
+        batch_size {int} -- batch size
+        train {bool} -- training 
 
-Keyword Arguments:
-   new_size {int} -- parameter for resizing (default: {None})
-    height {int} -- dimension for random cropping (default: {256})
-    width {int} -- dimension for random cropping (default: {256})
-    num_workers {int} -- number of workers (default: {4})
-    crop {bool} -- crop(default: {True})
+    Keyword Arguments:
+       new_size {int} -- parameter for resizing (default: {None})
+        height {int} -- dimension for random cropping (default: {256})
+        width {int} -- dimension for random cropping (default: {256})
+        num_workers {int} -- number of workers (default: {4})
+        crop {bool} -- crop(default: {True})
 
-Returns:
-    loader -- data loader with transformed dataset
+    Returns:
+        loader -- data loader with transformed dataset
 
-Returns:
-    [type] -- [description]
-"""
+    Returns:
+        [type] -- [description]
+    """
     transform_list = [
         transforms.ToTensor(),
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
@@ -486,7 +488,7 @@ def __write_images(image_outputs, display_image_num, file_name):
 
 def write_2images(
     image_outputs, display_image_num, image_directory, postfix, comet_exp=None
-):
+    ):
     """Write images from both worlds a and b of the cycle  A-B-A as jpg
     Arguments:
         image_outputs {Tensor list} -- list of images, the first half being outputs in B, 
