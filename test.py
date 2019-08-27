@@ -13,18 +13,18 @@ import torch
 import os
 from torchvision import transforms
 from PIL import Image
+import tqdm as tq
+import glob
 
+# Parse arguments
 parser = argparse.ArgumentParser()
-parser.add_argument("--config", type=str, help="net configuration")
-parser.add_argument("--input", type=str, help="input image path")
-parser.add_argument("--output_folder", type=str, help="output image path")
-parser.add_argument("--checkpoint", type=str, help="checkpoint of autoencoders")
+parser.add_argument("--config", type=str, help="network configuration file")
+parser.add_argument("--input", type=str, help="directory of input images")
+parser.add_argument("--output_folder", type=str, help="output image directory")
+parser.add_argument("--checkpoint", type=str, help="checkpoint of generator")
 parser.add_argument("--style", type=str, default="", help="style image path")
-parser.add_argument("--a2b", type=int, default=1, help="1 for a2b and 0 for b2a")
 parser.add_argument("--seed", type=int, default=10, help="random seed")
-parser.add_argument(
-    "--num_style", type=int, default=10, help="number of styles to sample"
-)
+
 parser.add_argument(
     "--synchronized",
     action="store_true",
@@ -41,52 +41,50 @@ parser.add_argument(
     default=".",
     help="path for logs, checkpoints, and VGG model weight",
 )
-parser.add_argument("--trainer", type=str, default="MUNIT", help="MUNIT|UNIT")
 opts = parser.parse_args()
 
-
+# Set the seed value
 torch.manual_seed(opts.seed)
 torch.cuda.manual_seed(opts.seed)
+
+# Create output folder if it does not exist
 if not os.path.exists(opts.output_folder):
     os.makedirs(opts.output_folder)
 
 # Load experiment setting
 config = get_config(opts.config)
-opts.num_style = 1 if opts.style != "" else opts.num_style
 
 # Setup model and data loader
 config["vgg_model_path"] = opts.output_path
-if opts.trainer == "MUNIT":
-    style_dim = config["gen"]["style_dim"]
-    trainer = MUNIT_Trainer(config)
-elif opts.trainer == "UNIT":
-    trainer = UNIT_Trainer(config)
-else:
-    sys.exit("Only support MUNIT|UNIT")
 
+# Set Style dimension
+style_dim = config["gen"]["style_dim"]
+trainer = MUNIT_Trainer(config)
+
+# Load the model (here we currently only load the latest model architecture: one single style)
 try:
     state_dict = torch.load(opts.checkpoint)
     trainer.gen.load_state_dict(state_dict["2"])
 except:
-    print("can t access the ckpt directory", opts.checkpoint)
+    sys.exit("Cannot load the checkpoints")
 
+# Send the trainer to cuda
 trainer.cuda()
 trainer.eval()
-encode = trainer.gen_a.encode if opts.a2b else trainer.gen_b.encode  # encode function
-style_encode = (
-    trainer.gen_b.encode if opts.a2b else trainer.gen_a.encode
-)  # encode function
-decode = trainer.gen_b.decode if opts.a2b else trainer.gen_a.decode  # decode function
 
-if "new_size" in config:
-    new_size = config["new_size"]
-else:
-    if opts.a2b == 1:
-        new_size = config["new_size_a"]
-    else:
-        new_size = config["new_size_b"]
+# Set param new_size
+new_size = config["new_size"]
 
+# Define the list of non-flooded images
+list_non_flooded = glob.glob(opts.input+'*')
+
+# Assert there are some elements inside
+if len(list_non_flooded) ==0:
+    sys.exit('Image list is empty. Please ensure opts.input ends with a /')
+
+# Inference
 with torch.no_grad():
+    # Define the transform to infer with the generator
     transform = transforms.Compose(
         [
             transforms.Resize(new_size),
@@ -94,43 +92,33 @@ with torch.no_grad():
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]
     )
-    image = Variable(
-        transform(Image.open(opts.input).convert("RGB")).unsqueeze(0).cuda()
-    )
+    # Load and Transform the Style Image
     style_image = (
         Variable(transform(Image.open(opts.style).convert("RGB")).unsqueeze(0).cuda())
-        if opts.style != ""
-        else None
     )
-
-    # Start testing
-    content, _ = encode(image)
-
-    if opts.trainer == "MUNIT":
-        style_rand = Variable(torch.randn(opts.num_style, style_dim, 1, 1).cuda())
-        if opts.style != "":
-            _, style = style_encode(style_image)
-        else:
-            style = style_rand
-        for j in range(opts.num_style):
-            s = style[j].unsqueeze(0)
-            outputs = decode(content, s)
-            outputs = (outputs + 1) / 2.0
-            path = os.path.join(opts.output_folder, "output{:03d}.jpg".format(j))
-            vutils.save_image(outputs.data, path, padding=0, normalize=True)
-    elif opts.trainer == "UNIT":
-        outputs = decode(content)
-        outputs = (outputs + 1) / 2.0
-        path = os.path.join(opts.output_folder, "output.jpg")
-        vutils.save_image(outputs.data, path, padding=0, normalize=True)
-    else:
-        pass
-
-    if not opts.output_only:
-        # also save input images
-        vutils.save_image(
-            image.data,
-            os.path.join(opts.output_folder, "input.jpg"),
-            padding=0,
-            normalize=True,
+    # Extract the style from the Style Image
+    _, s_b = trainer.gen.encode(style_image, 2)
+    
+    for j in tq.tqdm(range(len(list_non_flooded))):
+        
+        # Define image path
+        path_xa = list_non_flooded[j]
+        
+        # Load and transform the non_flooded image
+        x_a = Variable(
+            transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
         )
+        # Extract content and style
+        c_a, _ = trainer.gen.encode(x_a, 1)
+
+        # Perform cross domain translation
+        x_ab = trainer.gen.decode(c_a, s_b, 2)
+
+        # Denormalize .Normalize(0.5,0.5,0.5)...
+        outputs = (x_ab + 1) / 2.0
+
+        # Define output path
+        path = os.path.join(opts.output_folder, "output{:03d}.jpg".format(j))
+
+        # Save image 
+        vutils.save_image(outputs.data, path, padding=0, normalize=True)
