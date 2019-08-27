@@ -107,9 +107,10 @@ python train.py --config configs/house2flooded_house256.yaml
 Use `--resume` with the same `output_path` AND for now, for some reason, you need to use the **same name** for the config file...
 
 ### Test
-
-@GAUTIER
-
+Use the config file saved along with the checkpoint for the generator. Select one input folder containing several images and a style image from the flooded domain. The style of the latter will be applied to input images et saved in output_folder.
+```
+python test.py --configs/config.yaml --checkpoint model_name/checkpoints/gen_00205000.pt --input input_folder/ --output_folder output_folder/ --style style_image.jpg
+```
 ### Modifications to the original MUNIT
 
 ### Results
