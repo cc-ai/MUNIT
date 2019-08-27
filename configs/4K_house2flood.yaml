@@ -61,9 +61,9 @@ dis:
 input_dim_a: 3                              # number of image channels [1/3]
 input_dim_b: 3                              # number of image channels [1/3]
 num_workers: 8                              # number of data loading threads
-new_size: 256                               # first resize the shortest image side to this size
-crop_image_height: 256                      # random crop image of this height
-crop_image_width: 256                       # random crop image of this width
+new_size: 600                               # first resize the shortest image side to this size
+crop_image_height: 512                      # random crop image of this height
+crop_image_width: 512                       # random crop image of this width
 
 data_folder_train_a: /network/home/cosnegau/MUNIT/trainA/
 data_list_train_a: /network/tmp1/ccai/data/munit_dataset/trainA.txt

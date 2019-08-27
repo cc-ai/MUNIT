@@ -31,7 +31,7 @@ class MUNIT_Trainer(nn.Module):
         lr = hyperparameters["lr"]
         self.gen_state = hyperparameters["gen_state"]
         self.guided = hyperparameters["guided"]
-        self.newsize = hyperparameters["new_size"]
+        self.newsize = hyperparameters["crop_image_height"]
         self.semantic_w = hyperparameters["semantic_w"] > 0
         self.recon_mask = hyperparameters["recon_mask"] == 1
         self.dann_scheduler = None

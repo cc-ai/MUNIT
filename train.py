@@ -14,6 +14,7 @@ from utils import (
     get_config,
     write_2images,
     Timer,
+    get_data_loader_mask_and_im,
 )
 import argparse
 from torch.autograd import Variable
@@ -40,11 +41,13 @@ parser.add_argument(
 parser.add_argument("--output_path", type=str, default=".", help="outputs path")
 parser.add_argument("--resume", action="store_true")
 parser.add_argument("--trainer", type=str, default="MUNIT", help="MUNIT|UNIT")
+parser.add_argument("--git_hash", type=str, default="no-git-hash", help="output of git log --pretty=format:'%h' -n 1")
 opts = parser.parse_args()
 
 if comet_exp is not None:
     comet_exp.log_asset(file_data=opts.config, file_name="config.yaml")
-
+    comet_exp.log_parameter("git_hash", opts.git_hash)
+    
 cudnn.benchmark = True
 
 # Load experiment setting
