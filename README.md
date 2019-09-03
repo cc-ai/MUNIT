@@ -2,6 +2,13 @@
 
 This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT) for the needs of the [VICC project](https://github.com/cc-ai/kdb).
 
+
+## Requirements
+```
+pip install -r ./requirements.txt
+```
+(Not the minimum requirements yet.)
+
 ## How to Use
 
   - [Data](#data)
