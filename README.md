@@ -5,6 +5,9 @@ This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT
 
 ## Requirements
 ```
+conda install pytorch=0.4.1 torchvision cuda91 -c pytorch
+conda install -y -c anaconda pip
+conda install -y -c anaconda pyyaml
 pip install -r ./requirements.txt
 ```
 (Not the minimum requirements yet.)
