@@ -14,7 +14,8 @@ from utils import (
     get_config,
     write_2images,
     Timer,
-    get_data_loader_mask_and_im,
+    get_synthetic_data_loader,
+    
 )
 import argparse
 from torch.autograd import Variable

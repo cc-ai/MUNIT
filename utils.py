@@ -342,6 +342,144 @@ class MyDataset(Dataset):
         return len(self.image_paths)
 
 
+    
+    
+class MyDatasetSynthetic(Dataset):
+    """
+    Dataset class for synthetic paired images and masks
+    """
+    def __init__(self, file_list_a,file_list_b, mask_list, new_size, height, width):
+        self.image_paths  = default_txt_reader(file_list_a)
+        self.pair_paths   = default_txt_reader(file_list_b)
+        self.target_paths = default_txt_reader(mask_list)
+        self.new_size     = new_size
+        self.height       = height
+        self.width        = width
+
+    def transform(self, image_a, image_b, mask):
+        """Apply transformations to image and corresponding mask.
+        Transformations applied are:
+            random horizontal flipping, resizing, random cropping and normalizing
+        Arguments:
+            image_a {Image} -- Image
+            image_b {Image} -- Image
+            mask {Image} -- Mask
+        
+        Returns:
+            image, mask {Image, Image} -- transformed image and mask
+        """
+        # Random horizontal flipping
+        if torch.rand(1) > 0.5:
+            image_a = image.transpose(Image.FLIP_LEFT_RIGHT)
+            image_b = image.transpose(Image.FLIP_LEFT_RIGHT)
+            mask    = mask.transpose(Image.FLIP_LEFT_RIGHT)
+
+        # print('debugging mask transform 2 size',mask.size)
+        # Resize
+        resize = transforms.Resize(size=self.new_size)
+        image_a = resize(image_a)
+        image_b = resize(image_b)
+        # print('dim image after resize',image.size)
+
+        # Resize mask
+        mask = mask.resize((image.width, image.height), Image.NEAREST)
+
+        # print('debugging mask transform 3 size',mask.size)
+        # Random crop
+        i, j, h, w = transforms.RandomCrop.get_params(
+            image, output_size=(self.height, self.width)
+        )
+        image_a = F.crop(image_a, i, j, h, w)
+        image_b = F.crop(image_b, i, j, h, w)
+        
+        mask = F.crop(mask, i, j, h, w)
+
+        # print('debugging mask transform 4 size',mask.size)
+        # Transform to tensor
+        to_tensor = transforms.ToTensor()
+        image_a = to_tensor(image_a)
+        image_b = to_tensor(image_b)
+
+        if np.max(mask) == 1:
+            mask = to_tensor(mask) * 255
+        else:
+            mask = to_tensor(mask)
+
+        # print('debugging mask transform 5 size',mask.size)
+        # Normalize
+        normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        
+        image_a = normalizer(image_a)
+        image_b = normalizer(image_b)
+        
+        return image_a, image_b, mask
+
+    def __getitem__(self, index):
+        """Get transformed image and mask at index index in the dataset
+        
+        Arguments:
+            index {int} -- index at which to get image, mask pair
+        
+        Returns:
+            image_a, image_b, mask pair
+        """
+        image_a    = Image.open(self.image_paths[index][0]).convert("RGB")
+        image_b    = Image.open(self.pair_paths[index][0]).convert("RGB")
+        mask       = Image.open(self.target_paths[index][0])
+        x, y, x    = self.transform(image_a, image_b, mask)
+        return x, y, x
+
+    def __len__(self):
+        """return dataset length
+        
+        Returns:
+            int -- dataset length
+        """
+        return len(self.image_paths)
+    
+def get_synthetic_data_loader(
+    file_list_a,
+    file_list_b,
+    mask_list,
+    batch_size,
+    train,
+    new_size=None,
+    height=256,
+    width=256,
+    num_workers=4,
+    crop=True,
+    ):
+    """
+    Masks and images lists-based data loader with transformations
+    (horizontal flip, resizing, random crop, normalization are handled)
+    
+    Arguments:
+        file_list_a {str list} -- list of images filenames domain A
+        file_list_b {str list} -- list of images filenames domain B
+        mask_list {str list} -- list of masks filenames
+        batch_size {int} -- batch size
+        train {bool} -- training
+    
+    Keyword Arguments:
+        new_size {int} -- parameter for resizing (default: {None})
+        height {int} -- dimension for random cropping (default: {256})
+        width {int} -- dimension for random cropping (default: {256})
+        num_workers {int} -- number of workers (default: {4})
+        crop {bool} -- crop(default: {True})
+
+    Returns:
+        loader -- data loader with transformed dataset
+    """
+    dataset = MyDataset_synthetic(file_list_a, file_list_b, mask_list, new_size, height, width)
+    loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=train,
+        drop_last=True,
+        num_workers=num_workers,
+    )
+    return loader
+
 def get_data_loader_mask_and_im(
     file_list,
     mask_list,
