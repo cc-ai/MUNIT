@@ -15,7 +15,7 @@ from utils import (
     write_2images,
     Timer,
     get_synthetic_data_loader,
-    
+    get_data_loader_mask_and_im,
 )
 import argparse
 from torch.autograd import Variable
@@ -94,6 +94,20 @@ if config["semantic_w"] > 0:
         crop=True,
     )
 
+if config["synthetic_frequency"] > 0:
+    synthetic_loader = get_synthetic_data_loader(
+        config["data_list_train_a_synth"],
+        config["data_list_train_b_synth"],
+        config["data_list_train_b_seg_synth"],
+        config["batch_size"],
+        True,
+        new_size=config["new_size"],
+        height=config["crop_image_height"],
+        width=config["crop_image_width"],
+        num_workers=config["num_workers"],
+        crop=True,
+    )
+    
 train_display_images_a = torch.stack(
     [train_loader_a.dataset[i] for i in range(display_size)]
 ).cuda()
@@ -220,10 +234,10 @@ else:
             # We sample one example of the synthetic paired dataset
             if config["synthetic_frequency"] > 0:
                 if iterations % config["synthetic_frequency"] == 0:
-                    images_a, images_b, mask_b = next(iter(dataloader))
-                    mask_a = mask_b
-                    images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
-                    mask_a, mask_b = mask_a.cuda().detach(), mask_b.cuda().detach()
+                    images_a, images_b, mask_b = next(iter(synthetic_loader))
+                    mask_a                     = mask_b
+                    images_a, images_b         = images_a.cuda().detach(), images_b.cuda().detach()
+                    mask_a, mask_b             = mask_a.cuda().detach(), mask_b.cuda().detach()
 
                     with Timer("Elapsed time in update: %f"):
                         # Main training code
@@ -231,6 +245,7 @@ else:
                         trainer.gen_update(
                             images_a, images_b, config, mask_a, mask_b, comet_exp
                         )
+                        
                         if config["domain_adv_w"] > 0:
                             trainer.domain_classifier_update(
                                 images_a, images_b, config, comet_exp

@@ -366,12 +366,12 @@ class MyDatasetSynthetic(Dataset):
             mask {Image} -- Mask
         
         Returns:
-            image, mask {Image, Image} -- transformed image and mask
+            image_a, image_b, mask {Image, Image, Image} -- transformed image_a, pair image_b and mask
         """
         # Random horizontal flipping
         if torch.rand(1) > 0.5:
-            image_a = image.transpose(Image.FLIP_LEFT_RIGHT)
-            image_b = image.transpose(Image.FLIP_LEFT_RIGHT)
+            image_a = image_a.transpose(Image.FLIP_LEFT_RIGHT)
+            image_b = image_b.transpose(Image.FLIP_LEFT_RIGHT)
             mask    = mask.transpose(Image.FLIP_LEFT_RIGHT)
 
         # print('debugging mask transform 2 size',mask.size)
@@ -382,12 +382,12 @@ class MyDatasetSynthetic(Dataset):
         # print('dim image after resize',image.size)
 
         # Resize mask
-        mask = mask.resize((image.width, image.height), Image.NEAREST)
+        mask = mask.resize((image_b.width, image_b.height), Image.NEAREST)
 
         # print('debugging mask transform 3 size',mask.size)
         # Random crop
         i, j, h, w = transforms.RandomCrop.get_params(
-            image, output_size=(self.height, self.width)
+            image_b, output_size=(self.height, self.width)
         )
         image_a = F.crop(image_a, i, j, h, w)
         image_b = F.crop(image_b, i, j, h, w)
@@ -426,8 +426,8 @@ class MyDatasetSynthetic(Dataset):
         image_a    = Image.open(self.image_paths[index][0]).convert("RGB")
         image_b    = Image.open(self.pair_paths[index][0]).convert("RGB")
         mask       = Image.open(self.target_paths[index][0])
-        x, y, x    = self.transform(image_a, image_b, mask)
-        return x, y, x
+        x, y, z    = self.transform(image_a, image_b, mask)
+        return x, y, z
 
     def __len__(self):
         """return dataset length
@@ -443,7 +443,7 @@ def get_synthetic_data_loader(
     mask_list,
     batch_size,
     train,
-    new_size=None,
+    new_size=256,
     height=256,
     width=256,
     num_workers=4,
@@ -470,7 +470,7 @@ def get_synthetic_data_loader(
     Returns:
         loader -- data loader with transformed dataset
     """
-    dataset = MyDataset_synthetic(file_list_a, file_list_b, mask_list, new_size, height, width)
+    dataset = MyDatasetSynthetic(file_list_a, file_list_b, mask_list, new_size, height, width)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,

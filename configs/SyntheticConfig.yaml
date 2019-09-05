@@ -77,3 +77,6 @@ data_folder_test_b: /network/home/cosnegau/MUNIT/testB/
 data_list_test_b: /network/tmp1/ccai/data/munit_dataset/testB.txt
 data_list_train_a_seg: /network/tmp1/ccai/data/munit_dataset/trainA_seg.txt
 data_list_train_b_seg: /network/tmp1/ccai/data/munit_dataset/trainB_seg.txt
+data_list_train_a_synth: /network/tmp1/ccai/data/munit_dataset/trainA_synth.txt
+data_list_train_b_synth: /network/tmp1/ccai/data/munit_dataset/trainB_synth.txt
+data_list_train_b_seg_synth: /network/tmp1/ccai/data/munit_dataset/trainB_seg_synth.txt
