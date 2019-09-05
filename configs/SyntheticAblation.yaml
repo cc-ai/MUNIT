@@ -35,7 +35,7 @@ synthetic_frequency: -1       # frequency to which we show synthetic examples -1
 class_ckpt_path: /network/home/cosnegau/ckpt_small/resnet-18-epoch24.pth
 
 # Semantic segmentation ckpt path:
-semantic_ckpt_path: /network/home/cosnegau/RoadSegmentation/resnet_34_8s_cityscapes_best.pth
+semantic_ckpt_path: /network/tmp1/ccai/checkpoints/roadSegmentation/resnet_34_8s_cityscapes_best.pth
 
 # model options
 gen_state: 1                  # Default 0, 1 means using one common style encoder, 2 one autoencoder only
