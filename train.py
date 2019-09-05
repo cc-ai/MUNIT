@@ -215,7 +215,28 @@ else:
             # if (iterations + 1) % config['log_iter'] == 0:
             #    print("Iteration: %08d/%08d" % (iterations + 1, max_iter))
             #    write_loss(iterations, trainer, train_writer)
+            
+            # If the number of iteration match the synthetic frequency
+            # We sample one example of the synthetic paired dataset
+            if config["synthetic_frequency"] > 0:
+                if iterations % config["synthetic_frequency"] == 0:
+                    images_a, images_b, mask_b = next(iter(dataloader))
+                    mask_a = mask_b
+                    images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
+                    mask_a, mask_b = mask_a.cuda().detach(), mask_b.cuda().detach()
 
+                    with Timer("Elapsed time in update: %f"):
+                        # Main training code
+                        trainer.dis_update(images_a, images_b, config, comet_exp)
+                        trainer.gen_update(
+                            images_a, images_b, config, mask_a, mask_b, comet_exp
+                        )
+                        if config["domain_adv_w"] > 0:
+                            trainer.domain_classifier_update(
+                                images_a, images_b, config, comet_exp
+                            )
+                        torch.cuda.synchronize() 
+                
             # Write images
             if (iterations + 1) % config["image_save_iter"] == 0:
                 with torch.no_grad():
