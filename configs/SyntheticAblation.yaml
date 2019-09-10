@@ -2,8 +2,8 @@
 # Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 
 # logger options
-image_save_iter: 1000         # How often do you want to save output images during training
-image_display_iter: 500       # How often do you want to display output images during training
+image_save_iter: 6         # How often do you want to save output images during training
+image_display_iter: 5       # How often do you want to display output images during training
 display_size: 8               # How many images do you want to display each time
 snapshot_save_iter: 5000      # How often do you want to save trained models
 log_iter: 1                   # How often do you want to log the training stats
@@ -41,6 +41,13 @@ semantic_ckpt_path: /network/tmp1/ccai/checkpoints/roadSegmentation/resnet_34_8s
 gen_state: 1                  # Default 0, 1 means using one common style encoder, 2 one autoencoder only
 guided: 1                     # Default 0 random style picked (multi modal), 1 means guided training
 
+# FID 
+batch_size_fid: 1            # batch_size to infer the model when computing fid
+eval_fid: 1                   # Default 0, 1 means we track FID during training 
+
+# Path to the inception moment computed on the real dataset of 900 flooded images
+inception_moment_path: /network/tmp1/ccai/data/munit_dataset/inception_moments.npz
+      
 
 gen:
   dim: 64                     # number of filters in the bottommost layer
@@ -80,3 +87,6 @@ data_list_train_b_seg: /network/tmp1/ccai/data/munit_dataset/trainB_seg.txt
 data_list_train_a_synth: /network/tmp1/ccai/data/munit_dataset/trainA_synth.txt
 data_list_train_b_synth: /network/tmp1/ccai/data/munit_dataset/trainB_synth.txt
 data_list_train_b_seg_synth: /network/tmp1/ccai/data/munit_dataset/trainB_seg_synth.txt
+# list image for FID monitoring
+data_list_fid_a: /network/tmp1/ccai/data/munit_dataset/trainA_fid.txt
+data_list_fid_b: /network/tmp1/ccai/data/munit_dataset/trainB.txt

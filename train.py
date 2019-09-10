@@ -16,7 +16,9 @@ from utils import (
     Timer,
     get_synthetic_data_loader,
     get_data_loader_mask_and_im,
+    get_fid_data_loader
 )
+from inception_utils import prepare_inception_metrics,load_inception_net
 import argparse
 from torch.autograd import Variable
 from trainer import MUNIT_Trainer, UNIT_Trainer
@@ -107,6 +109,17 @@ if config["synthetic_frequency"] > 0:
         num_workers=config["num_workers"],
         crop=True,
     )
+    
+if config["eval_fid"] > 0:
+    fid_loader   = get_fid_data_loader(
+        config["data_list_fid_a"],
+        config["data_list_fid_b"],
+        config["batch_size_fid"],
+        train=False,
+        new_size = config["new_size"],
+        num_workers=config["num_workers"]
+    )
+    get_inception_metrics = prepare_inception_metrics(inception_moment=config["inception_moment_path"],parallel=False)
     
 train_display_images_a = torch.stack(
     [train_loader_a.dataset[i] for i in range(display_size)]
@@ -275,6 +288,13 @@ else:
                     "train_%08d" % (iterations + 1),
                     comet_exp,
                 )
+                ####################################### 
+                #           WORK in Progress          #
+                #######################################
+                # Compute FID
+                FID = get_inception_metrics(trainer, fid_loader,prints=True, use_torch=True)
+                if comet_exp is not None:
+                    comet_exp.log_metric("FID", FID)
                 # HTML
                 # write_html(output_directory + "/index.html", iterations + 1, config['image_save_iter'], 'images')
 
@@ -299,3 +319,16 @@ else:
             if iterations >= max_iter:
                 sys.exit("Finish training")
 
+
+                                           
+                                           
+                                           
+                                           
+                                           
+                                           
+                                           
+                                           
+                                           
+                                           
+                                           
+                                            

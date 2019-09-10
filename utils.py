@@ -342,7 +342,99 @@ class MyDataset(Dataset):
         return len(self.image_paths)
 
 
+class DatasetInferenceFID(Dataset):
+    """
+    Dataset class for images and masks filenames inputs
+    """
+    def __init__(self, file_list_a, file_list_b, new_size):
+        self.image_paths = default_txt_reader(file_list_a)
+        self.target_paths = default_txt_reader(file_list_b)
+        self.new_size = new_size
+
+    def transform(self, image_a, image_b):
+        """Apply transformations to image and corresponding mask.
+        Transformations applied are:
+            random horizontal flipping, resizing, random cropping and normalizing
+        Arguments:
+            image {Image} -- Image
+            mask {Image} -- Mask
+        
+        Returns:
+            image, mask {Image, Image} -- transformed image and mask
+        """
+        
+        # Resize
+        resize = transforms.Resize(size=self.new_size)
+        image_a = resize(image_a)
+        image_b = resize(image_b)
+        
+        # Transform to tensor
+        to_tensor = transforms.ToTensor()
+        image_a = to_tensor(image_a)
+        image_b = to_tensor(image_b)
+        
+        # Normalize
+        normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        image_a = normalizer(image_a)
+        image_b = normalizer(image_a)
+        return image_a, image_b
+
+    def __getitem__(self, index):
+        """Get transformed image and mask at index index in the dataset
+        
+        Arguments:
+            index {int} -- index at which to get image, mask pair
+        
+        Returns:
+            image, mask pair
+        """
+        image_a = Image.open(self.image_paths[index][0]).convert("RGB")
+        image_b = Image.open(self.target_paths[index][0]).convert("RGB")
+        x, y = self.transform(image_a, image_b)
+        return x, y
+
+    def __len__(self):
+        """return dataset length
+        
+        Returns:
+            int -- dataset length
+        """
+        return len(self.image_paths)
     
+def get_fid_data_loader(
+    file_list_a,
+    file_list_b,
+    batch_size,
+    train,
+    new_size=256,
+    num_workers=4,
+    ):
+    """
+    Masks and images lists-based data loader with transformations
+    (horizontal flip, resizing, random crop, normalization are handled)
+    
+    Arguments:
+        file_list_a {str list} -- list of images filenames domain A
+        file_list_b {str list} -- list of images filenames domain B
+        batch_size {int} -- batch size
+        train {bool} -- training
+    
+    Keyword Arguments:
+        new_size {int} -- parameter for resizing (default: {None})
+        num_workers {int} -- number of workers (default: {4})
+        
+    Returns:
+        loader -- data loader with transformed dataset
+    """
+    dataset = DatasetInferenceFID(file_list_a, file_list_b, new_size)
+    loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        drop_last=True,
+        num_workers=num_workers,
+    )
+    return loader    
     
 class MyDatasetSynthetic(Dataset):
     """

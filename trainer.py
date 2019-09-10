@@ -626,6 +626,57 @@ class MUNIT_Trainer(nn.Module):
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
+    def sample_fid(self, x_a, x_b):
+        """ 
+        Infer the model on a batch of image
+        
+        Arguments:
+            x_a {torch.Tensor} -- batch of image from domain A
+            x_b {[type]} -- batch of image from domain B
+        
+        Returns:
+            A list of torch images -- columnwise :x_a, autoencode(x_a), x_ab_1, x_ab_2
+            Or if self.semantic_w is true: x_a, autoencode(x_a), Semantic segmentation x_a, 
+            x_ab_1,semantic segmentation x_ab_1, x_ab_2
+        """
+        self.eval()
+        x_ab1= []
+        
+        if self.gen_state == 0:
+            for i in range(x_a.size(0)):
+                c_a, _ = self.gen_a.encode(x_a[i].unsqueeze(0))
+                _, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
+
+                if self.guided == 1:
+                    x_ab1.append(
+                        self.gen_b.decode(c_a, s_b_fake)
+                    ) 
+
+                else:
+                    print("self.guided unknown value:", self.guided)
+
+        elif self.gen_state == 1:
+            for i in range(x_a.size(0)):
+                c_a, _ = self.gen.encode(x_a[i].unsqueeze(0), 1)
+                _, s_b_fake = self.gen.encode(x_b[i].unsqueeze(0), 2)
+                if self.guided == 1:
+                    x_ab1.append(
+                        self.gen.decode(c_a, s_b_fake, 2)
+                    )
+                else:
+                    print("self.guided unknown value:", self.guided)
+
+        else:
+            print("self.gen_state unknown value:", self.gen_state)
+            
+        x_ab1 = torch.cat(x_ab1)
+        self.train()
+        if self.semantic_w:
+            self.segmentation_model.eval()
+            
+        return x_ab1
+
+        
     def dis_update(self, x_a, x_b, hyperparameters, comet_exp=None):
         """
         Update the weights of the discriminator
