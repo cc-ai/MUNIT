@@ -292,9 +292,10 @@ else:
                 #           WORK in Progress          #
                 #######################################
                 # Compute FID
-                FID = get_inception_metrics(trainer, fid_loader,prints=True, use_torch=True)
+                FID = get_inception_metrics(trainer, fid_loader,prints=True, use_torch=False)
                 if comet_exp is not None:
                     comet_exp.log_metric("FID", FID)
+                print('FID =',FID)
                 # HTML
                 # write_html(output_directory + "/index.html", iterations + 1, config['image_save_iter'], 'images')
 

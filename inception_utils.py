@@ -221,7 +221,7 @@ def torch_calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
 
     diff = mu1 - mu2
     # Run 50 itrs of newton-schulz to get the matrix sqrt of sigma1 dot sigma2
-    covmean = sqrt_newton_schulz(sigma1.mm(sigma2).unsqueeze(0), 50).squeeze()  
+    covmean = sqrt_newton_schulz(sigma1.mm(sigma2).unsqueeze(0), 400).squeeze()  
     out = (diff.dot(diff) +  torch.trace(sigma1) + torch.trace(sigma2)
          - 2 * torch.trace(covmean))
     return out
@@ -277,7 +277,7 @@ def prepare_inception_metrics(inception_moment,parallel=False):
                                                    torch.tensor(data_sigma).float().cuda())
             FID = float(FID.cpu().numpy())
         else:
-            FID = numpy_calculate_frechet_distance(mu.cpu().numpy(), sigma.cpu().numpy(), data_mu, data_sigma)
+            FID = numpy_calculate_frechet_distance(mu, sigma, data_mu, data_sigma)
         # Delete mu, sigma, pool, logits, and labels, just in case
         del mu, sigma, pool
         
