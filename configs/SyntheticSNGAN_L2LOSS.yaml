@@ -31,6 +31,7 @@ recon_mask: 1                 # default 0 do not touch recon loss, 1 do not comp
 domain_adv_w: 0 
 
 synthetic_frequency: 10       # frequency to which we show synthetic examples -1 if we don't want to
+recon_synth_w: 50             # weight of image reconstruction loss on the pair
 #classifier ckpt path: 
 class_ckpt_path: /network/home/cosnegau/ckpt_small/resnet-18-epoch24.pth
 
@@ -47,6 +48,7 @@ eval_fid: 1                   # Default 0, 1 means we track FID during training
 
 # Path to the inception moment computed on the real dataset of 900 flooded images
 inception_moment_path: /network/tmp1/ccai/data/munit_dataset/inception_moments.npz
+      
 
 gen:
   dim: 64                     # number of filters in the bottommost layer
@@ -61,7 +63,7 @@ dis:
   norm: none                  # normalization layer [none/bn/in/ln]
   activ: lrelu                # activation function [relu/lrelu/prelu/selu/tanh]
   n_layer: 4                  # number of layers in D
-  gan_type: lsgan             # GAN loss [lsgan/nsgan]
+  gan_type: nsgan             # GAN loss [lsgan/nsgan]
   num_scales: 3               # number of scales
   pad_type: reflect           # padding type [zero/reflect]
 

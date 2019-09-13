@@ -192,7 +192,7 @@ class MUNIT_Trainer(nn.Module):
         return x_ab, x_ba
 
     def gen_update(
-        self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None
+        self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None, synth=False
     ):
         """
         Update the generator parameters
@@ -206,6 +206,7 @@ class MUNIT_Trainer(nn.Module):
             mask_a {torch.Tensor} -- binary mask (0,1) corresponding to the ground in x_a (default: {None})
             mask_b {torch.Tensor} -- binary mask (0,1) corresponding to the water in x_b (default: {None})
             comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})
+            synth {boolean}  -- binary True or False stating if we have a synthetic pair or not 
 
         Returns:
             [type] -- [description]
@@ -285,6 +286,10 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
         self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
+        
+        # Synthetic reconstruction loss
+        self.loss_gen_recon_synth = self.recon_criterion(x_ab, x_b) if synth else 0
+        
         if self.recon_mask:
             self.loss_gen_cycrecon_x_a = (
                 self.recon_criterion_mask(x_aba, x_a, mask_a)
@@ -354,6 +359,7 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["vgg_w"] * self.loss_gen_vgg_b
             + hyperparameters["semantic_w"] * self.loss_sem_seg
             + hyperparameters["domain_adv_w"] * self.domain_adv_loss
+            + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
         )
 
         if comet_exp is not None:
@@ -375,6 +381,8 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
             if hyperparameters["domain_adv_w"] > 0:
                 comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
+            if synth:
+                comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth)
 
         self.loss_gen_total.backward()
         self.gen_opt.step()
@@ -989,6 +997,7 @@ class UNIT_Trainer(nn.Module):
         self.loss_gen_cyc_x_b = self.recon_criterion(x_bab, x_b)
         self.loss_gen_recon_kl_cyc_aba = self.__compute_kl(h_a_recon)
         self.loss_gen_recon_kl_cyc_bab = self.__compute_kl(h_b_recon)
+       
         # GAN loss
         self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba)
         self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab)

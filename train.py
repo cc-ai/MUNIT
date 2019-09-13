@@ -256,14 +256,8 @@ else:
                         # Main training code
                         trainer.dis_update(images_a, images_b, config, comet_exp)
                         trainer.gen_update(
-                            images_a, images_b, config, mask_a, mask_b, comet_exp
+                            images_a, images_b, config, mask_a, mask_b, comet_exp,True
                         )
-                        
-                        if config["domain_adv_w"] > 0:
-                            trainer.domain_classifier_update(
-                                images_a, images_b, config, comet_exp
-                            )
-                        torch.cuda.synchronize() 
                 
             # Write images
             if (iterations + 1) % config["image_save_iter"] == 0:
