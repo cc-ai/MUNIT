@@ -416,7 +416,7 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b)
             if hyperparameters["semantic_w"] > 0:
                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
-            if hyperparameters["semantic_w"] > 0:
+            if hyperparameters["semantic_coco_w"] > 0:
                 comet_exp.log_metric("loss_sem_seg_coco", self.loss_sem_seg_coco)
             if hyperparameters["domain_adv_w"] > 0:
                 comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
