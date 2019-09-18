@@ -711,8 +711,8 @@ class MUNIT_Trainer(nn.Module):
                 input_transformed_a=input_transformed_a.unsqueeze(0)*255
                 input_transformed_b=input_transformed_b.unsqueeze(0)*255
 
-                print("input_transformed_a.shape",input_transformed_a.shape)
-                print('input_transformed_a.type()',input_transformed_a.type())
+                #print("input_transformed_a.shape",input_transformed_a.shape)
+                #print('input_transformed_a.type()',input_transformed_a.type())
                 output_a = self.inference_merge_coco(input_transformed_a).squeeze().max(0)[1]
                 output_b = self.inference_merge_coco(input_transformed_b).squeeze().max(0)[1]
 
@@ -785,90 +785,6 @@ class MUNIT_Trainer(nn.Module):
             )
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
-        
-    def sample_coco(self, x_a, x_b):
-        self.eval()
-        s_a1 = Variable(self.s_a)
-        s_b1 = Variable(self.s_b)
-        s_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
-        s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
-        x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
-        for i in range(x_a.size(0)):
-            c_a, s_a_fake = self.gen.encode(x_a[i].unsqueeze(0),1)
-            c_b, s_b_fake = self.gen.encode(x_b[i].unsqueeze(0),2)
-            x_a_recon.append(self.gen.decode(c_a, s_a_fake,1))
-            x_b_recon.append(self.gen.decode(c_b, s_b_fake,2))
-            x_ba1.append(self.gen.decode(c_b, s_a1[i].unsqueeze(0),1))
-            x_ba2.append(self.gen.decode(c_b, s_a2[i].unsqueeze(0),1))
-            x_ab1.append(self.gen.decode(c_a, s_b1[i].unsqueeze(0),2))
-            x_ab2.append(self.gen.decode(c_a, s_b2[i].unsqueeze(0),2))
-        x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
-        x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
-        x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
-
-        
-        rgb_a_list,rgb_b_list,rgb_ab_list, rgb_ba_list  = [], [],[],[]
-        ###############
-        for i in range(x_a.size(0)):
-            
-            # Inference semantic segmentation on original images
-            im_a  = (x_a[i]+1)/2.
-            im_b  = (x_b[i]+1)/2.
-            
-            #print('im_a.shape',im_a.shape)
-                  
-                  
-            norm_tensor = torch.tensor([float(122.675)/255,float(116.669)/255,float(104.008)/255])
-            norm_tensor = norm_tensor.unsqueeze(-1).unsqueeze(-1).cuda()
-        
-            input_transformed_a = im_a - norm_tensor
-            input_transformed_b = im_b - norm_tensor
-            
-            input_transformed_a=input_transformed_a.unsqueeze(0)*255
-            input_transformed_b=input_transformed_b.unsqueeze(0)*255
-        
-            # print("input_transformed_a.shape",input_transformed_a.shape)
-            # print('input_transformed_a.type()',input_transformed_a.type())
-            output_a = self.inference_coco(input_transformed_a).squeeze().max(0)[1]
-            output_b = self.inference_coco(input_transformed_b).squeeze().max(0)[1]
-            
-            rgb_a = decode_coco_segmap(output_a.squeeze().cpu().numpy().astype(np.uint8))
-            rgb_b = decode_coco_segmap(output_b.squeeze().cpu().numpy().astype(np.uint8))
-            
-            rgb_a = Image.fromarray(rgb_a).resize((x_a.size(3),x_a.size(3)))
-            rgb_b = Image.fromarray(rgb_b).resize((x_a.size(3),x_a.size(3)))
-            
-            rgb_a_list.append(transforms.ToTensor()(rgb_a).unsqueeze(0))
-            rgb_b_list.append(transforms.ToTensor()(rgb_b).unsqueeze(0))
-          
-            # Inference semantic segmentation on fake images        
-            image_ab  = (x_ab1[i]+1)/2.
-            image_ba  = (x_ba1[i]+1)/2.
-
-            input_transformed_ab = image_ab - norm_tensor
-            input_transformed_ba = image_ba - norm_tensor
-            
-            input_transformed_ab=input_transformed_ab.unsqueeze(0)*255
-            input_transformed_ba=input_transformed_ba.unsqueeze(0)*255
-
-            output_ab = self.inference_coco(input_transformed_ab).squeeze().max(0)[1]
-            output_ba = self.inference_coco(input_transformed_ba).squeeze().max(0)[1]
-            
-            rgb_ab = decode_coco_segmap(output_ab.squeeze().cpu().numpy().astype(np.uint8))
-            rgb_ba = decode_coco_segmap(output_ba.squeeze().cpu().numpy().astype(np.uint8))
-            
-            rgb_ab = Image.fromarray(rgb_ab).resize((x_a.size(3),x_a.size(3)))
-            rgb_ba = Image.fromarray(rgb_ba).resize((x_a.size(3),x_a.size(3)))
-            
-            rgb_ab_list.append(transforms.ToTensor()(rgb_ab).unsqueeze(0))
-            rgb_ba_list.append(transforms.ToTensor()(rgb_ba).unsqueeze(0))
-        ##########
-        rgb1_a,rgb1_b,rgb1_ab,rgb1_ba = torch.cat(rgb_a_list).cuda(),torch.cat(rgb_b_list).cuda(),\
-                                        torch.cat(rgb_ab_list).cuda(),torch.cat(rgb_ba_list).cuda()
-        self.train()
-        self.segmentation_coco_model.eval()
-        return x_a, x_a_recon,rgb1_a, x_ab1, rgb1_ab, x_ab2, x_b, x_b_recon,rgb1_b, x_ba1,rgb1_ba,x_ba2
-
         
     def sample_fid(self, x_a, x_b):
         """ 

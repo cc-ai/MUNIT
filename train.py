@@ -334,10 +334,10 @@ elif config["semantic_coco_w"] != 0:
             # Write images
             if (iterations + 1) % config["image_save_iter"] == 0:
                 with torch.no_grad():
-                    test_image_outputs = trainer.sample_coco(
+                    test_image_outputs = trainer.sample(
                         test_display_images_a, test_display_images_b
                     )
-                    train_image_outputs = trainer.sample_coco(
+                    train_image_outputs = trainer.sample(
                         train_display_images_a, train_display_images_b
                     )
                 write_2images(
@@ -367,7 +367,7 @@ elif config["semantic_coco_w"] != 0:
 
             if (iterations + 1) % config["image_display_iter"] == 0:
                 with torch.no_grad():
-                    image_outputs = trainer.sample_coco(
+                    image_outputs = trainer.sample(
                         train_display_images_a, train_display_images_b
                     )
                 write_2images(
