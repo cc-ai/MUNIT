@@ -16,6 +16,10 @@ from utils import (
     load_segmentation_model,
     decode_segmap,
     domainClassifier,
+    decode_coco_segmap,
+    load_segmentation_coco_model,
+    merge_logits,
+    assignment_dir
 )
 from torch.autograd import Variable
 from torchvision import transforms
@@ -23,7 +27,7 @@ import torch
 import torch.nn as nn
 import os
 from PIL import Image
-
+import numpy as np
 
 class MUNIT_Trainer(nn.Module):
     def __init__(self, hyperparameters):
@@ -33,12 +37,16 @@ class MUNIT_Trainer(nn.Module):
         self.guided = hyperparameters["guided"]
         self.newsize = hyperparameters["crop_image_height"]
         self.semantic_w = hyperparameters["semantic_w"] > 0
+        self.semantic_coco_w = hyperparameters["semantic_coco_w"] > 0
         self.recon_mask = hyperparameters["recon_mask"] == 1
         self.dann_scheduler = None
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif = hyperparameters["domain_adv_w"] > 0
         else:
             self.domain_classif = False
+        if "semantic_coco_w" in hyperparameters.keys():
+            if hyperparameters['semantic_coco_w']>0:
+                self.dict_merge = assignment_dir()
 
         if self.gen_state == 0:
             # Initiate the networks
@@ -117,7 +125,15 @@ class MUNIT_Trainer(nn.Module):
             self.segmentation_model.eval()
             for param in self.segmentation_model.parameters():
                 param.requires_grad = False
+        
+        # Load COCO semantic segmentation model
+        if 'semantic_coco_w' in hyperparameters.keys() and hyperparameters['semantic_coco_w'] > 0:
+            self.segmentation_coco_model = load_segmentation_coco_model(hyperparameters['semantic_coco_ckpt_path'])
+            self.segmentation_coco_model.eval()
+            for param in self.segmentation_coco_model.parameters():
+                param.requires_grad = False
 
+        
         # Load domain classifier if needed
         if (
             "domain_adv_w" in hyperparameters.keys()
@@ -191,6 +207,22 @@ class MUNIT_Trainer(nn.Module):
         self.train()
         return x_ab, x_ba
 
+    def inference_coco(self, image):
+        _, _, H, W = image.shape
+        # Image -> Probability map
+        logits = self.segmentation_coco_model(image)
+        if type(logits)==list:
+            print('WHY IS THERE A LIST HERE')
+            logits = logits[-1]
+        logits = nn.functional.interpolate(logits, size=(H, W), mode="bilinear", align_corners=False)
+        probs  = nn.functional.softmax(logits, dim=1)[0]
+        return probs
+
+    def inference_merge_coco(self, image):
+        probs = self.inference_coco(image)
+        new_probs = merge_logits(probs,self.dict_merge)
+        return(new_probs)
+    
     def gen_update(
         self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None, synth=False
     ):
@@ -342,6 +374,10 @@ class MUNIT_Trainer(nn.Module):
             if hyperparameters["domain_adv_w"] > 0
             else 0
         )
+        # semantic-segmentation loss coco
+        self.loss_sem_seg_coco = self.compute_coco_seg_loss(x_a.squeeze(), x_ab.squeeze(),mask_a,True,hyperparameters["weight_water"]) + \
+                                 self.compute_coco_seg_loss(x_b.squeeze(), x_ba.squeeze(),mask_b,True,hyperparameters["weight_water"]) \
+                                 if hyperparameters['semantic_coco_w'] > 0 else 0
 
         # total loss
         self.loss_gen_total = (
@@ -360,6 +396,7 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["semantic_w"] * self.loss_sem_seg
             + hyperparameters["domain_adv_w"] * self.domain_adv_loss
             + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
+            + hyperparameters["semantic_coco_w"] * self.loss_sem_seg_coco
         )
 
         if comet_exp is not None:
@@ -379,6 +416,8 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b)
             if hyperparameters["semantic_w"] > 0:
                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
+            if hyperparameters["semantic_w"] > 0:
+                comet_exp.log_metric("loss_sem_seg_coco", self.loss_sem_seg_coco)
             if hyperparameters["domain_adv_w"] > 0:
                 comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
             if synth:
@@ -476,7 +515,50 @@ class MUNIT_Trainer(nn.Module):
             output_with_mask_cat.unsqueeze(0), target_with_mask.squeeze().unsqueeze(0)
         )
         return loss
+    
+    def compute_coco_seg_loss(self, img1, img2, mask, atob=True,weight_water = 1):
+            img1_denorm = (img1 + 1) / 2.
+            img2_denorm = (img2 + 1) / 2.
 
+            norm_tensor = torch.tensor([float(122.675)/255,float(116.669)/255,float(104.008)/255])
+            norm_tensor = norm_tensor.unsqueeze(-1).unsqueeze(-1).cuda()
+
+            input_transformed1 = img1_denorm - norm_tensor
+            input_transformed2 = img2_denorm - norm_tensor
+
+            input_transformed1= input_transformed1.unsqueeze(0)*255
+            input_transformed2= input_transformed2.unsqueeze(0)*255
+
+            # print('input_transformed1.shape',input_transformed1.shape)
+            target = self.inference_merge_coco(input_transformed1).squeeze().max(0)[1].unsqueeze(0)
+            output = self.inference_merge_coco(input_transformed2).unsqueeze(0)
+
+            mask1 = torch.nn.functional.interpolate(mask, size=(256,256))
+            mask1_tensor = torch.tensor(mask1,dtype=torch.long).cuda()
+
+            mask2 = torch.nn.functional.interpolate(mask, size=(256,256))
+            mask_tensor = torch.tensor(mask2,dtype=torch.float).cuda()
+            output_with_mask = (torch.mul(1-mask_tensor,output))
+
+            if atob:
+                #print('mask_tensor.shape',mask_tensor.shape)
+                # we want the masked region to be annotated as river = 147
+                target_with_mask = torch.mul(1-mask1_tensor,target) + mask1_tensor*7
+                output_with_mask[0,7,:,:] += mask_tensor[0,0,:,:]
+
+            else:
+                #Here we want to consider the masked region to be annotated as nothing
+                output_with_mask = torch.cat((output_with_mask.squeeze(),mask_tensor.squeeze().unsqueeze(0)))
+                target_with_mask     = torch.mul(1-mask1_tensor,target) + mask1_tensor*22
+
+            #         print('output_with_mask.shape',output_with_mask.shape)
+            #         print('target_with_mask.shape',target_with_mask.squeeze().unsqueeze(0).shape)
+            weight_cross_entropy  = torch.ones(22,device='cuda')
+            weight_cross_entropy[7] = weight_water
+            loss = nn.CrossEntropyLoss(weight=weight_cross_entropy)(output_with_mask,target_with_mask.squeeze().unsqueeze(0))
+
+            return(loss)
+        
     def sample(self, x_a, x_b):
         """ 
         Infer the model on a batch of image
@@ -613,7 +695,61 @@ class MUNIT_Trainer(nn.Module):
                 torch.cat(rgb_ab_list).cuda(),
                 torch.cat(rgb_ba_list).cuda(),
             )
+        elif self.semantic_coco_w:
+            rgb_a_list,rgb_b_list,rgb_ab_list, rgb_ba_list  = [], [],[],[]
+            for i in range(x_a.size(0)):
 
+                # Inference semantic segmentation on original images
+                im_a  = (x_a[i]+1)/2.
+                im_b  = (x_b[i]+1)/2.
+                norm_tensor = torch.tensor([float(122.675)/255, float(116.669)/255, float(104.008)/255])
+                norm_tensor = norm_tensor.unsqueeze(-1).unsqueeze(-1).cuda()
+
+                input_transformed_a = im_a - norm_tensor
+                input_transformed_b = im_b - norm_tensor
+
+                input_transformed_a=input_transformed_a.unsqueeze(0)*255
+                input_transformed_b=input_transformed_b.unsqueeze(0)*255
+
+                print("input_transformed_a.shape",input_transformed_a.shape)
+                print('input_transformed_a.type()',input_transformed_a.type())
+                output_a = self.inference_merge_coco(input_transformed_a).squeeze().max(0)[1]
+                output_b = self.inference_merge_coco(input_transformed_b).squeeze().max(0)[1]
+
+                rgb_a = decode_coco_segmap(output_a.squeeze().cpu().numpy().astype(np.uint8))
+                rgb_b = decode_coco_segmap(output_b.squeeze().cpu().numpy().astype(np.uint8))
+
+                rgb_a = Image.fromarray(rgb_a).resize((x_a.size(3),x_a.size(3)))
+                rgb_b = Image.fromarray(rgb_b).resize((x_a.size(3),x_a.size(3)))
+
+                rgb_a_list.append(transforms.ToTensor()(rgb_a).unsqueeze(0))
+                rgb_b_list.append(transforms.ToTensor()(rgb_b).unsqueeze(0))
+
+                # Inference semantic segmentation on fake images        
+                image_ab  = (x_ab1[i]+1)/2.
+                image_ba  = (x_ba1[i]+1)/2.
+
+                input_transformed_ab = image_ab - norm_tensor
+                input_transformed_ba = image_ba - norm_tensor
+
+                input_transformed_ab=input_transformed_ab.unsqueeze(0)*255
+                input_transformed_ba=input_transformed_ba.unsqueeze(0)*255
+
+                output_ab = self.inference_merge_coco(input_transformed_ab).squeeze().max(0)[1]
+                output_ba = self.inference_merge_coco(input_transformed_ba).squeeze().max(0)[1]
+
+                rgb_ab = decode_coco_segmap(output_ab.squeeze().cpu().numpy().astype(np.uint8))
+                rgb_ba = decode_coco_segmap(output_ba.squeeze().cpu().numpy().astype(np.uint8))
+
+                rgb_ab = Image.fromarray(rgb_ab).resize((x_a.size(3),x_a.size(3)))
+                rgb_ba = Image.fromarray(rgb_ba).resize((x_a.size(3),x_a.size(3)))
+
+                rgb_ab_list.append(transforms.ToTensor()(rgb_ab).unsqueeze(0))
+                rgb_ba_list.append(transforms.ToTensor()(rgb_ba).unsqueeze(0))
+            ##########
+            rgb1_a,rgb1_b,rgb1_ab,rgb1_ba = torch.cat(rgb_a_list).cuda(),torch.cat(rgb_b_list).cuda(),\
+                                            torch.cat(rgb_ab_list).cuda(),torch.cat(rgb_ba_list).cuda()
+                
         self.train()
         if self.semantic_w:
             self.segmentation_model.eval()
@@ -631,9 +767,109 @@ class MUNIT_Trainer(nn.Module):
                 rgb1_ba,
                 x_ba2,
             )
+        elif self.semantic_coco_w:
+            self.segmentation_coco_model.eval()
+            return (
+                x_a,
+                x_a_recon,
+                rgb1_a,
+                x_ab1,
+                rgb1_ab,
+                x_ab2,
+                x_b,
+                x_b_recon,
+                rgb1_b,
+                x_ba1,
+                rgb1_ba,
+                x_ba2,
+            )
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
+        
+    def sample_coco(self, x_a, x_b):
+        self.eval()
+        s_a1 = Variable(self.s_a)
+        s_b1 = Variable(self.s_b)
+        s_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
+        for i in range(x_a.size(0)):
+            c_a, s_a_fake = self.gen.encode(x_a[i].unsqueeze(0),1)
+            c_b, s_b_fake = self.gen.encode(x_b[i].unsqueeze(0),2)
+            x_a_recon.append(self.gen.decode(c_a, s_a_fake,1))
+            x_b_recon.append(self.gen.decode(c_b, s_b_fake,2))
+            x_ba1.append(self.gen.decode(c_b, s_a1[i].unsqueeze(0),1))
+            x_ba2.append(self.gen.decode(c_b, s_a2[i].unsqueeze(0),1))
+            x_ab1.append(self.gen.decode(c_a, s_b1[i].unsqueeze(0),2))
+            x_ab2.append(self.gen.decode(c_a, s_b2[i].unsqueeze(0),2))
+        x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
+        x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
+        x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
 
+        
+        rgb_a_list,rgb_b_list,rgb_ab_list, rgb_ba_list  = [], [],[],[]
+        ###############
+        for i in range(x_a.size(0)):
+            
+            # Inference semantic segmentation on original images
+            im_a  = (x_a[i]+1)/2.
+            im_b  = (x_b[i]+1)/2.
+            
+            #print('im_a.shape',im_a.shape)
+                  
+                  
+            norm_tensor = torch.tensor([float(122.675)/255,float(116.669)/255,float(104.008)/255])
+            norm_tensor = norm_tensor.unsqueeze(-1).unsqueeze(-1).cuda()
+        
+            input_transformed_a = im_a - norm_tensor
+            input_transformed_b = im_b - norm_tensor
+            
+            input_transformed_a=input_transformed_a.unsqueeze(0)*255
+            input_transformed_b=input_transformed_b.unsqueeze(0)*255
+        
+            # print("input_transformed_a.shape",input_transformed_a.shape)
+            # print('input_transformed_a.type()',input_transformed_a.type())
+            output_a = self.inference_coco(input_transformed_a).squeeze().max(0)[1]
+            output_b = self.inference_coco(input_transformed_b).squeeze().max(0)[1]
+            
+            rgb_a = decode_coco_segmap(output_a.squeeze().cpu().numpy().astype(np.uint8))
+            rgb_b = decode_coco_segmap(output_b.squeeze().cpu().numpy().astype(np.uint8))
+            
+            rgb_a = Image.fromarray(rgb_a).resize((x_a.size(3),x_a.size(3)))
+            rgb_b = Image.fromarray(rgb_b).resize((x_a.size(3),x_a.size(3)))
+            
+            rgb_a_list.append(transforms.ToTensor()(rgb_a).unsqueeze(0))
+            rgb_b_list.append(transforms.ToTensor()(rgb_b).unsqueeze(0))
+          
+            # Inference semantic segmentation on fake images        
+            image_ab  = (x_ab1[i]+1)/2.
+            image_ba  = (x_ba1[i]+1)/2.
+
+            input_transformed_ab = image_ab - norm_tensor
+            input_transformed_ba = image_ba - norm_tensor
+            
+            input_transformed_ab=input_transformed_ab.unsqueeze(0)*255
+            input_transformed_ba=input_transformed_ba.unsqueeze(0)*255
+
+            output_ab = self.inference_coco(input_transformed_ab).squeeze().max(0)[1]
+            output_ba = self.inference_coco(input_transformed_ba).squeeze().max(0)[1]
+            
+            rgb_ab = decode_coco_segmap(output_ab.squeeze().cpu().numpy().astype(np.uint8))
+            rgb_ba = decode_coco_segmap(output_ba.squeeze().cpu().numpy().astype(np.uint8))
+            
+            rgb_ab = Image.fromarray(rgb_ab).resize((x_a.size(3),x_a.size(3)))
+            rgb_ba = Image.fromarray(rgb_ba).resize((x_a.size(3),x_a.size(3)))
+            
+            rgb_ab_list.append(transforms.ToTensor()(rgb_ab).unsqueeze(0))
+            rgb_ba_list.append(transforms.ToTensor()(rgb_ba).unsqueeze(0))
+        ##########
+        rgb1_a,rgb1_b,rgb1_ab,rgb1_ba = torch.cat(rgb_a_list).cuda(),torch.cat(rgb_b_list).cuda(),\
+                                        torch.cat(rgb_ab_list).cuda(),torch.cat(rgb_ba_list).cuda()
+        self.train()
+        self.segmentation_coco_model.eval()
+        return x_a, x_a_recon,rgb1_a, x_ab1, rgb1_ab, x_ab2, x_b, x_b_recon,rgb1_b, x_ba1,rgb1_ba,x_ba2
+
+        
     def sample_fid(self, x_a, x_b):
         """ 
         Infer the model on a batch of image
@@ -681,6 +917,8 @@ class MUNIT_Trainer(nn.Module):
         self.train()
         if self.semantic_w:
             self.segmentation_model.eval()
+        elif self.semantic_coco_w:
+            self.segmentation_coco_model.eval()
             
         return x_ab1
 

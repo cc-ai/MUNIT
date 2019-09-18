@@ -22,6 +22,8 @@ import torch.nn.init as init
 import time
 from resnet import resnet34
 
+from libs.models import *
+
 # Methods
 # get_all_data_loaders          : primary data loader interface (load trainA, testA, trainB, testB)
 # get_data_loader_list          : list-based data loader
@@ -300,8 +302,8 @@ class MyDataset(Dataset):
         i, j, h, w = transforms.RandomCrop.get_params(
             image, output_size=(self.height, self.width)
         )
-        image = F.crop(image, i, j, h, w)
-        mask = F.crop(mask, i, j, h, w)
+        image = image.crop((j, i, j + w, i + h)) # F.crop(image, i, j, h, w)
+        mask  = mask.crop((j, i, j + w, i + h))   # F.crop(mask, i, j, h, w)
 
         # print('debugging mask transform 4 size',mask.size)
         # Transform to tensor
@@ -481,10 +483,10 @@ class MyDatasetSynthetic(Dataset):
         i, j, h, w = transforms.RandomCrop.get_params(
             image_b, output_size=(self.height, self.width)
         )
-        image_a = F.crop(image_a, i, j, h, w)
-        image_b = F.crop(image_b, i, j, h, w)
+        image_a = image_a.crop((j, i, j + w, i + h)) # F.crop(image_a, i, j, h, w)
+        image_b = image_b.crop((j, i, j + w, i + h)) #F.crop(image_b, i, j, h, w)
         
-        mask = F.crop(mask, i, j, h, w)
+        mask = mask.crop((j, i, j + w, i + h))#F.crop(mask, i, j, h, w)
 
         # print('debugging mask transform 4 size',mask.size)
         # Transform to tensor
@@ -1074,7 +1076,118 @@ def decode_segmap(image, nc=19):
     rgb = np.stack([r, g, b], axis=2)
     return rgb
 
+def load_segmentation_coco_model(ckpt_path):
 
+    model         = eval('DeepLabV2_ResNet101_MSC')(n_classes   = 182)
+    state_dict    = torch.load(ckpt_path, map_location = lambda storage, loc: storage)
+
+    model.load_state_dict(state_dict)
+    return model
+
+def decode_coco_segmap(image,nc=22):
+    
+    colormap = np.zeros((nc, 3), dtype=np.uint8)
+    colormap[0] = [220, 20, 60]   # person
+    colormap[1] = [0, 0, 142]     # Vehicle
+    colormap[2] = [220, 220, 0]   # Outdoor
+    colormap[3] = [0, 0, 70]      # animal
+    colormap[4] = [119, 11, 32]   # accessory
+    
+    colormap[5] = [0, 80, 100]    #sports
+    colormap[5] = [0, 60, 100]    #Indoor
+    
+    colormap[7] = [30,144,255]    #river
+    colormap[8] = [128, 64, 128]  #ground
+    
+    colormap[9] = [244, 35, 232]  #sidewalk
+    colormap[10] = [70, 70, 70]   #house  
+    colormap[11] = [102, 102, 156]#wall
+    colormap[12] = [190, 153, 153]#structural
+    colormap[13] = [107, 142, 35] #vegetation
+    
+    colormap[14] = [152, 251, 152] #terrain
+    colormap[15] = [70, 130, 180]  #sky
+    colormap[16] = [255,255,255]  #clouds
+    
+    colormap[17] = [89, 123, 186]  #windows
+    colormap[18] = [140, 136, 77]  #solid
+    colormap[19] = [186, 168, 89]  #food
+    colormap[20] = [140, 136, 115] #rawmaterial
+    colormap[21] = [69, 69, 69]    #other
+
+    r = np.zeros_like(image).astype(np.uint8)
+    g = np.zeros_like(image).astype(np.uint8)
+    b = np.zeros_like(image).astype(np.uint8)
+
+    for l in range(nc):
+        idx = image == l
+        r[idx] = colormap[l, 0]
+        g[idx] = colormap[l, 1]
+        b[idx] = colormap[l, 2]
+
+    rgb = np.stack([r, g, b], axis=2)
+    return rgb
+
+def merge_logits(logits,dict_assignment,temperature=0.000001):
+    """
+        Merge the logits according to the assignment dictionnary
+        
+        Arguments:
+            logits {torch.Tensor} -- output of coco stuff before softmax
+            dict_assignment {dictionnary} -- Dictionnary of merged classes
+        
+        Returns:
+            torch.Tensor -- new_logits logits after merging
+    """
+    dim_1_logit,dim2,dim3 = logits.shape
+    #     print("logits.shape",logits.shape)
+    if dim_1_logit != 182:
+        sys.exit('The logits that we are trying to merge doesnt have 182 classes - COCO Format')
+    # Number of classes after merging the semantic classes
+    N_class = len(dict_assignment.keys())
+    # New logits
+    new_probs = torch.zeros((N_class,dim2,dim3)).cuda()
+    
+    # New class index
+    N_index = -1
+    for key in dict_assignment.keys():
+        N_index+=1
+        ind_prob = dict_assignment[key]
+        a = logits[ind_prob,:,:]
+        b = torch.nn.Softmax(dim=0)(a/temperature)
+        new_probs[N_index,:,:] = torch.sum(a*b,0)
+        
+    return(new_probs) 
+
+def assignment_dir():
+    # Dict merge 
+    dict_merge = {}
+    dict_merge['person']    = [0]
+    dict_merge['Vehicle']   = [k for k in range(1,8+1)]
+    dict_merge['Outdoor']   = [k for k in range(9,14+1)]
+    dict_merge['animal']    = [k for k in range(15,24+1)]
+    dict_merge['accessory'] = [k for k in range(25,32+1)]
+    dict_merge['sports']    = [k for k in range(33,42+1)]
+    dict_merge['Indoor']    = [k for k in range(43,90+1)]
+
+    dict_merge['Water']     = [177,154,147,153]
+    dict_merge['Ground']    = [125,124,148,139,146,143,144,158]
+    dict_merge['sidewalk']  = [103]
+    dict_merge['building']  = [95,150,165,94,157,127]
+    dict_merge['wall']      = [170,171,172,173,174,175,176]
+    dict_merge['structural']= [163,145,137,98,112]
+    dict_merge['vegetation']= [141,168,93,96,128]
+    dict_merge['terrain']   = [123,133,162,135,110,118]
+    dict_merge['sky']       = [156]
+    dict_merge['clouds']    = [105]
+
+    dict_merge['Windows']   = [179,180]
+    dict_merge['solid']     = [159,126,134,161,149,181]
+    dict_merge['food']      = [120,169,152,121]
+    dict_merge['rawmaterial'] = [131,142,138,99]
+    dict_merge['other']     =[91,92,97,100,101,102,104,106,107,108,109,111,113,114,115,\
+                              116,117,119,122,129,130,132,136,140,151,155,160,164,166,167,178]
+    return dict_merge
 def load_inception(model_path):
     """Load Inception model
     
