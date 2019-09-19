@@ -320,7 +320,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
         
         # Synthetic reconstruction loss
-        self.loss_gen_recon_synth = self.recon_criterion(x_ab, x_b) if synth else 0
+        self.loss_gen_recon_synth = self.recon_criterion_mask(x_ab, x_b,mask_b) if synth else 0
         
         if self.recon_mask:
             self.loss_gen_cycrecon_x_a = (
@@ -376,7 +376,7 @@ class MUNIT_Trainer(nn.Module):
         )
         # semantic-segmentation loss coco
         self.loss_sem_seg_coco = self.compute_coco_seg_loss(x_a.squeeze(), x_ab.squeeze(),mask_a,True,hyperparameters["weight_water"]) + \
-                                 self.compute_coco_seg_loss(x_b.squeeze(), x_ba.squeeze(),mask_b,True,hyperparameters["weight_water"]) \
+                                 self.compute_coco_seg_loss(x_b.squeeze(), x_ba.squeeze(),mask_b,False,hyperparameters["weight_water"]) \
                                  if hyperparameters['semantic_coco_w'] > 0 else 0
 
         # total loss
@@ -539,13 +539,13 @@ class MUNIT_Trainer(nn.Module):
             mask2 = torch.nn.functional.interpolate(mask, size=(256,256))
             mask_tensor = torch.tensor(mask2,dtype=torch.float).cuda()
             output_with_mask = (torch.mul(1-mask_tensor,output))
-
+            weight_cross_entropy  = torch.ones(22,device='cuda')
             if atob:
                 #print('mask_tensor.shape',mask_tensor.shape)
                 # we want the masked region to be annotated as river = 147
                 target_with_mask = torch.mul(1-mask1_tensor,target) + mask1_tensor*7
                 output_with_mask[0,7,:,:] += mask_tensor[0,0,:,:]
-
+                weight_cross_entropy[7] = weight_water
             else:
                 #Here we want to consider the masked region to be annotated as nothing
                 output_with_mask = torch.cat((output_with_mask.squeeze(),mask_tensor.squeeze().unsqueeze(0)))
@@ -553,8 +553,7 @@ class MUNIT_Trainer(nn.Module):
 
             #         print('output_with_mask.shape',output_with_mask.shape)
             #         print('target_with_mask.shape',target_with_mask.squeeze().unsqueeze(0).shape)
-            weight_cross_entropy  = torch.ones(22,device='cuda')
-            weight_cross_entropy[7] = weight_water
+            
             loss = nn.CrossEntropyLoss(weight=weight_cross_entropy)(output_with_mask,target_with_mask.squeeze().unsqueeze(0))
 
             return(loss)
