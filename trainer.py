@@ -339,7 +339,7 @@ class MUNIT_Trainer(nn.Module):
         # Domain adversarial loss (c_a and c_b are swapped because we want the feature to be less informative
         # minmax (accuracy but max min loss)
         self.domain_adv_loss = (
-            self.compute_domain_adv_loss(c_b, c_a)
+            self.compute_domain_adv_loss(c_a,c_b, compute_accuracy=False, minimize=False)
             if hyperparameters["domain_adv_w"] > 0
             else 0
         )
@@ -408,7 +408,7 @@ class MUNIT_Trainer(nn.Module):
             (self.instancenorm(img_fea) - self.instancenorm(target_fea)) ** 2
         )
 
-    def compute_domain_adv_loss(self, c_a, c_b, compute_accuracy=False):
+    def compute_domain_adv_loss(self, c_a, c_b, compute_accuracy=False,minimize=True):
         """ 
         Compute a domain adversarial loss on the embedding of the classifier:
         we are trying to learn an anonymized representation of the content. 
@@ -420,19 +420,27 @@ class MUNIT_Trainer(nn.Module):
         Keyword Arguments:
             compute_accuracy {bool} -- either return only the loss or loss and softmax probs
             (default: {False})
+            minimize {bool} -- optimize classification accuracy(True) or anonymized the representation(False)
         
         Returns:
             torch.Float -- loss (optionnal softmax P(classifier(c_a)=a) and P(classifier(c_b)=b)) 
         """
+        # Infer domain classifier on content extracted from an image of domainA
         output_a = self.domain_classifier(c_a)
+
+        # Infer domain classifier on content extracted from an image of domainB
         output_b = self.domain_classifier(c_b)
 
-        label_domain_a = torch.tensor([0]).cuda()
-        label_domain_b = torch.tensor([1]).cuda()
-
-        loss = nn.CrossEntropyLoss()(
-            output_a.unsqueeze(0), label_domain_a
-        ) + nn.CrossEntropyLoss()(output_b.unsqueeze(0), label_domain_b)
+        # Concatenate the output in a single vector
+        output = torch.cat((output_a,output_b))       
+        
+    
+        if minimize:
+            target = torch.tensor([0,1],device='cuda') 
+        else:
+            target = torch.tensor([0.5,0.5],device='cuda')
+        # mean square error loss
+        loss = torch.nn.MSELoss(output,target)
         if compute_accuracy:
             return loss, output_a[0], output_b[1]
         else:
@@ -773,8 +781,7 @@ class MUNIT_Trainer(nn.Module):
 
         # domain classifier loss
         self.domain_class_loss, out_a, out_b = self.compute_domain_adv_loss(
-            c_a, c_b, True
-        )
+            c_a, c_b, compute_accuracy=True,minimize=True)
 
         if comet_exp is not None:
             comet_exp.log_metric("domain_class_loss", self.domain_class_loss)
