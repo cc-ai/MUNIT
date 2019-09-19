@@ -517,46 +517,77 @@ class MUNIT_Trainer(nn.Module):
         return loss
     
     def compute_coco_seg_loss(self, img1, img2, mask, atob=True,weight_water = 1):
-            img1_denorm = (img1 + 1) / 2.
-            img2_denorm = (img2 + 1) / 2.
+        """ 
+        Compute cross entropy loss between the semantic segmentation of the original 
+        image and the generated fake in the unmasked region + in the masked region a 
+        crossentropy loss with target expected label (water in the case of translation from a to b)
+        
+        Arguments:
+            img1 {torch.Tensor} -- Real Image
+            img2 {torch.Tensor} -- Image transformed 
+            mask {torch.Tensor} -- Binary mask where we force the loss to be zero
+            atob {boolean} -- Boolean value: is the translation from a to b
+            weight_water {torch.float} weight attributed to the class water in the semantic segmentation
+        
+        Returns:
+            torch.float -- Modified Cross entropy loss 
+        """
+        
+        # Denormalize MUNIT norm
+        img1_denorm = (img1 + 1) / 2.
+        img2_denorm = (img2 + 1) / 2.
+        
+        # Define norm tensor (for coco stuff)
+        norm_tensor = torch.tensor([float(122.675)/255,float(116.669)/255,float(104.008)/255])
+        norm_tensor = norm_tensor.unsqueeze(-1).unsqueeze(-1).cuda()
+        
+        # Center 
+        input_transformed1 = img1_denorm - norm_tensor
+        input_transformed2 = img2_denorm - norm_tensor
+        
+        # Rescale
+        input_transformed1= input_transformed1.unsqueeze(0)*255
+        input_transformed2= input_transformed2.unsqueeze(0)*255
 
-            norm_tensor = torch.tensor([float(122.675)/255,float(116.669)/255,float(104.008)/255])
-            norm_tensor = norm_tensor.unsqueeze(-1).unsqueeze(-1).cuda()
+        # print('input_transformed1.shape',input_transformed1.shape)
+        
+        # Compute the target (label from img1)
+        target = self.inference_merge_coco(input_transformed1).squeeze().max(0)[1].unsqueeze(0)
+        
+        # Compute logits from img2 (the fake image)
+        output = self.inference_merge_coco(input_transformed2).unsqueeze(0)
+        
+        # cast the mask in long format
+        mask1_tensor = torch.tensor(mask,dtype=torch.long).cuda()
 
-            input_transformed1 = img1_denorm - norm_tensor
-            input_transformed2 = img2_denorm - norm_tensor
+        # Cast the mask in float format
+        mask_tensor = mask
+        
+        # remove the logits in the masked region 
+        output_with_mask = (torch.mul(1-mask_tensor,output))
 
-            input_transformed1= input_transformed1.unsqueeze(0)*255
-            input_transformed2= input_transformed2.unsqueeze(0)*255
-
-            # print('input_transformed1.shape',input_transformed1.shape)
-            target = self.inference_merge_coco(input_transformed1).squeeze().max(0)[1].unsqueeze(0)
-            output = self.inference_merge_coco(input_transformed2).unsqueeze(0)
-
-            mask1 = torch.nn.functional.interpolate(mask, size=(256,256))
-            mask1_tensor = torch.tensor(mask1,dtype=torch.long).cuda()
-
-            mask2 = torch.nn.functional.interpolate(mask, size=(256,256))
-            mask_tensor = torch.tensor(mask2,dtype=torch.float).cuda()
-            output_with_mask = (torch.mul(1-mask_tensor,output))
+        if atob:
+            #print('mask_tensor.shape',mask_tensor.shape)
+            # we want the masked region to be annotated as water: label = 7
+            target_with_mask = torch.mul(1-mask1_tensor,target) + mask1_tensor*7
+            # output_with_mask[0,7,:,:] += mask_tensor[0,0,:,:]
             weight_cross_entropy  = torch.ones(22,device='cuda')
-            if atob:
-                #print('mask_tensor.shape',mask_tensor.shape)
-                # we want the masked region to be annotated as river = 147
-                target_with_mask = torch.mul(1-mask1_tensor,target) + mask1_tensor*7
-                output_with_mask[0,7,:,:] += mask_tensor[0,0,:,:]
-                weight_cross_entropy[7] = weight_water
-            else:
-                #Here we want to consider the masked region to be annotated as nothing
-                output_with_mask = torch.cat((output_with_mask.squeeze(),mask_tensor.squeeze().unsqueeze(0)))
-                target_with_mask     = torch.mul(1-mask1_tensor,target) + mask1_tensor*22
+            weight_cross_entropy[7] = weight_water
+            #print('output_with_mask.shape',output_with_mask.shape)
+            #print('target_with_mask.shape',target_with_mask.squeeze().unsqueeze(0).shape)
+            loss = nn.CrossEntropyLoss(weight=weight_cross_entropy)(output,target_with_mask.squeeze().unsqueeze(0))
+        else:
+            weight_cross_entropy  = torch.ones(23,device='cuda')
+            #Here we want to consider the masked region to be annotated as nothing
+            output_with_mask = torch.cat((output_with_mask.squeeze(),mask_tensor.squeeze().unsqueeze(0))).unsqueeze(0)
+            target_with_mask     = torch.mul(1-mask1_tensor,target) + mask1_tensor*22
 
-            #         print('output_with_mask.shape',output_with_mask.shape)
-            #         print('target_with_mask.shape',target_with_mask.squeeze().unsqueeze(0).shape)
-            
+            #print('output_with_mask.shape',output_with_mask.shape)
+            #print('target_with_mask.shape',target_with_mask.squeeze().unsqueeze(0).shape)
+
             loss = nn.CrossEntropyLoss(weight=weight_cross_entropy)(output_with_mask,target_with_mask.squeeze().unsqueeze(0))
 
-            return(loss)
+        return(loss)
         
     def sample(self, x_a, x_b):
         """ 
