@@ -436,11 +436,11 @@ class MUNIT_Trainer(nn.Module):
         
     
         if minimize:
-            target = torch.tensor([0,1],device='cuda') 
+            target = torch.tensor([1.,0.,0.,1.],device='cuda') 
         else:
-            target = torch.tensor([0.5,0.5],device='cuda')
+            target = torch.tensor([0.5,0.5,0.5,0.5],device='cuda')
         # mean square error loss
-        loss = torch.nn.MSELoss(output,target)
+        loss = torch.nn.MSELoss()(output,target)
         if compute_accuracy:
             return loss, output_a[0], output_b[1]
         else:
