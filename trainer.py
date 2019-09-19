@@ -288,7 +288,8 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
         
         # Synthetic reconstruction loss
-        self.loss_gen_recon_synth = self.recon_criterion(x_ab, x_b) if synth else 0
+        self.loss_gen_recon_synth = self.recon_criterion_mask(x_ab, x_b,mask_b) +\
+                                    self.recon_criterion_mask(x_ba, x_a,mask_a)  if synth else 0
         
         if self.recon_mask:
             self.loss_gen_cycrecon_x_a = (
