@@ -45,7 +45,7 @@ semantic_ckpt_path: /network/tmp1/ccai/checkpoints/roadSegmentation/resnet_34_8s
 
 
 # Semantic segmentation ckpt path:
-semantic_coco_ckpt_path: /network/home/cosnegau/deeplab-pytorch/deeplabv2_resnet101_msc-cocostuff164k-100000.pth
+semantic_coco_ckpt_path: /network/tmp1/ccai/checkpoints/coco/deeplabv2_resnet101_msc-cocostuff164k-100000.pth
 
 # Sanity check new semantic segmentation 
 sanity_check: True
