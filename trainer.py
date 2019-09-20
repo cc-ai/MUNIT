@@ -375,8 +375,8 @@ class MUNIT_Trainer(nn.Module):
             else 0
         )
         # semantic-segmentation loss coco
-        self.loss_sem_seg_coco = self.compute_coco_seg_loss(x_a.squeeze(), x_ab.squeeze(),mask_a,True,hyperparameters["weight_water"]) + \
-                                 self.compute_coco_seg_loss(x_b.squeeze(), x_ba.squeeze(),mask_b,False,hyperparameters["weight_water"]) \
+        self.loss_sem_seg_coco = self.compute_coco_seg_loss(x_a.squeeze(), x_ab.squeeze(),mask_a,True,hyperparameters["weight_water"],hyperparameters["sanity_check"]) + \
+                                 self.compute_coco_seg_loss(x_b.squeeze(), x_ba.squeeze(),mask_b,False,hyperparameters["weight_water"],hyperparameters["sanity_check"]) \
                                  if hyperparameters['semantic_coco_w'] > 0 else 0
 
         # total loss
@@ -516,7 +516,7 @@ class MUNIT_Trainer(nn.Module):
         )
         return loss
     
-    def compute_coco_seg_loss(self, img1, img2, mask, atob=True,weight_water = 1):
+    def compute_coco_seg_loss(self, img1, img2, mask, atob=True,weight_water = 1,sanity_check =False):
         """ 
         Compute cross entropy loss between the semantic segmentation of the original 
         image and the generated fake in the unmasked region + in the masked region a 
@@ -566,7 +566,7 @@ class MUNIT_Trainer(nn.Module):
         # remove the logits in the masked region 
         output_with_mask = (torch.mul(1-mask_tensor,output))
 
-        if atob:
+        if atob and not sanity_check:
             #print('mask_tensor.shape',mask_tensor.shape)
             # we want the masked region to be annotated as water: label = 7
             target_with_mask = torch.mul(1-mask1_tensor,target) + mask1_tensor*7
@@ -578,8 +578,10 @@ class MUNIT_Trainer(nn.Module):
             loss = nn.CrossEntropyLoss(weight=weight_cross_entropy)(output,target_with_mask.squeeze().unsqueeze(0))
         else:
             weight_cross_entropy  = torch.ones(23,device='cuda')
-            #Here we want to consider the masked region to be annotated as nothing
+            # Here we want to consider the masked region to be annotated as nothing
             output_with_mask = torch.cat((output_with_mask.squeeze(),mask_tensor.squeeze().unsqueeze(0))).unsqueeze(0)
+            # There are 22 classes labeled from 0 to 21, the 22th class is artficially created so that no loss is calculated
+            # on the mask
             target_with_mask     = torch.mul(1-mask1_tensor,target) + mask1_tensor*22
 
             #print('output_with_mask.shape',output_with_mask.shape)
