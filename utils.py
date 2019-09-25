@@ -341,6 +341,99 @@ class MyDataset(Dataset):
         """
         return len(self.image_paths)
 
+class DatasetHD(Dataset):
+    """
+    Dataset class for images and masks filenames inputs in HD
+    """
+    def __init__(self, file_list, mask_list, new_size, new_size_hd, height, width):
+        self.image_paths = default_txt_reader(file_list)
+        self.target_paths = default_txt_reader(mask_list)
+        self.new_size = new_size
+        self.new_size_hd = new_size_hd
+        self.height = height
+        self.width = width
+
+    def transform(self, image, mask):
+        """Apply transformations to image and corresponding mask.
+        Transformations applied are:
+            random horizontal flipping, resizing, random cropping and normalizing
+        Arguments:
+            image {Image} -- Image
+            mask {Image} -- Mask
+        
+        Returns:
+            image, mask {Image, Image} -- transformed image and mask
+        """
+        # Random horizontal flipping
+        if torch.rand(1) > 0.5:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+            mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
+
+        # Resizing to the closest multiple of 4 (pix2pix)
+        ow, oh = image.size
+        ow, oh = self.new_size_hd,int(round(self.new_size_hd*oh/ow))
+        base = 4
+        h = int(round(oh / base) * base)
+        w = int(round(ow / base) * base)
+
+        
+        # print('debugging mask transform 2 size',mask.size)
+        # Define Resize HD (multiple of 4) used by the downsampler
+        resize_HD = transforms.Resize((h,w))
+        
+        # Define Resize for G1
+        resize    = transforms.Resize(self.new_size)
+        
+        # Resize for HD
+        image_HD = resize_HD(image)
+        
+        # Resize for G1
+        image = resize(image_HD)
+        
+        # print('dim image after resize',image.size)
+        # Resize mask
+        mask_HD = mask.resize((image_HD.width, image_HD.height), Image.NEAREST)
+        mask = mask.resize((image.width, image.height), Image.NEAREST)
+
+        # Transform to tensor
+        to_tensor = transforms.ToTensor()
+        image_HD  = to_tensor(image_HD)
+        image     = to_tensor(image)
+        if np.max(mask) == 1:
+            mask_HD = to_tensor(mask_HD) * 255
+            mask    = to_tensor(mask) * 255
+        else:
+            mask_HD = to_tensor(mask_HD)
+            mask    = to_tensor(mask)
+
+        # print('debugging mask transform 5 size',mask.size)
+        # Normalize
+        normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        image_HD = normalizer(image)
+        image    = normalizer(image)
+        return image_HD, mask_HD, image, mask 
+
+    def __getitem__(self, index):
+        """Get transformed image and mask at index index in the dataset
+        
+        Arguments:
+            index {int} -- index at which to get image, mask pair
+        
+        Returns:
+            image, mask pair
+        """
+        image = Image.open(self.image_paths[index][0]).convert("RGB")
+        mask = Image.open(self.target_paths[index][0])
+        x, y = self.transform(image, mask)
+        return x, y
+
+    def __len__(self):
+        """return dataset length
+        
+        Returns:
+            int -- dataset length
+        """
+        return len(self.image_paths)
 
 class DatasetInferenceFID(Dataset):
     """

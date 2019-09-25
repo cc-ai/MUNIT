@@ -382,6 +382,213 @@ class VAEGen(nn.Module):
         images = self.dec(hiddens)
         return images
 
+##################################################################################
+# Two Generators but one style + LocalEnhancer
+##################################################################################
+
+
+class AdaINGen_double_HD(nn.Module):
+
+    # AdaIN auto-encoder architecture
+    def __init__(self, input_dim, params):
+        super(AdaINGen_double, self).__init__()
+        dim = params["dim"]
+        style_dim = params["style_dim"]
+        n_downsample = params["n_downsample"]
+        n_res = params["n_res"]
+        activ = params["activ"]
+        pad_type = params["pad_type"]
+        mlp_dim = params["mlp_dim"]
+
+        # style encoder
+        self.enc_style = StyleEncoder(
+            4, input_dim, dim, style_dim, norm="none", activ=activ, pad_type=pad_type
+        )
+
+        # content encoder
+        self.enc1_content = ContentEncoder(
+            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
+        )
+        self.enc2_content = ContentEncoder(
+            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
+        )
+
+        self.dec1 = Decoder(
+            n_downsample,
+            n_res,
+            self.enc1_content.output_dim,
+            input_dim,
+            res_norm="adain",
+            activ=activ,
+            pad_type=pad_type,
+        )
+        self.dec2 = Decoder(
+            n_downsample,
+            n_res,
+            self.enc2_content.output_dim,
+            input_dim,
+            res_norm="adain",
+            activ=activ,
+            pad_type=pad_type,
+        )
+
+        # MLP to generate AdaIN parameters
+        self.mlp1 = MLP(
+            style_dim,
+            self.get_num_adain_params(self.dec1),
+            mlp_dim,
+            3,
+            norm="none",
+            activ=activ,
+        )
+        self.mlp2 = MLP(
+            style_dim,
+            self.get_num_adain_params(self.dec2),
+            mlp_dim,
+            3,
+            norm="none",
+            activ=activ,
+        )
+        
+        # Define Local Upsampler (G2)
+        self.localUp = LocalUpsampler(3, 3, ngf=32, n_downsample_global=3,
+                                      n_blocks_global=9, n_blocks_local=3, padding_type='reflect')
+        # Define Local Downsampler -> concatenated with output_prev of G1
+        self.localDown = LocalDownsampler(3, 3, ngf=32, n_downsample_global=3,
+                             n_blocks_global=9, n_blocks_local=3, padding_type='reflect')
+        
+    def forward_with_HD(self, imageHD, image, encoder_name):
+        
+        content_downsampled = self.localDown(imageHD)
+        
+        # Encode G1
+        content, style_fake = self.encode(image, encoder_name)
+        images_recon,least_layer = self.decode(content, style_fake, encoder_name,return_content=True)
+        
+        # Upsample
+        image_recon_HD = self.localUp(least_layer+content_downsampled)
+        
+        return images_recon,image_recon_HD
+
+    def forward(self, images, encoder_name):
+        # reconstruct an image
+        content, style_fake = self.encode(images, encoder_name)
+        images_recon = self.decode(content, style_fake, encoder_name)
+        return images_recon
+
+    def encode(self, images, encoder_name):
+        # encode an image to its content and style codes
+        style_fake = self.enc_style(images)
+        if encoder_name == 1:
+            content = self.enc1_content(images)
+        elif encoder_name == 2:
+            content = self.enc2_content(images)
+        else:
+            print("wrong value for encoder_name, must be 0 or 1")
+            return None
+        return content, style_fake
+
+    def decode(self, content, style, encoder_name,return_content=False):
+
+        # decode content and style codes to an image
+        if encoder_name == 1:
+            adain_params = self.mlp1(style)
+            self.assign_adain_params(adain_params, self.dec1)
+            images = self.dec1(content)
+        elif encoder_name == 2:
+            adain_params = self.mlp2(style)
+            self.assign_adain_params(adain_params, self.dec2)
+            images = self.dec2(content)
+        else:
+            print("wrong value for encoder_name, must be 0 or 1")
+            return None
+        if return_content:
+            # decode content and style codes to an image
+            if encoder_name == 1:
+                adain_params = self.mlp1(style)
+                self.assign_adain_params(adain_params, self.dec1)
+                images = self.dec1.model[:-1](content)
+            elif encoder_name == 2:
+                adain_params = self.mlp2(style)
+                self.assign_adain_params(adain_params, self.dec2)
+                content = self.dec2.model[:-1](content)
+            else:
+                print("wrong value for encoder_name, must be 0 or 1")
+                return None
+            
+            return images, content
+        else:
+            return images
+
+    def get_adain_param(self, style, encoder_name):
+        """
+        output of mlp on style
+        """
+        if encoder_name == 1:
+            adain_params = self.mlp1(style)
+        elif encoder_name == 2:
+            adain_params = self.mlp2(style)
+        else:
+            print("wrong value for encoder_name, must be 0 or 1")
+            return None
+        return adain_params
+
+    def assign_adain_params(self, adain_params, model):
+        # assign the adain_params to the AdaIN layers in model
+        for m in model.modules():
+            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
+                mean = adain_params[:, : m.num_features]
+                std = adain_params[:, m.num_features : 2 * m.num_features]
+                m.bias = mean.contiguous().view(-1)
+                m.weight = std.contiguous().view(-1)
+                if adain_params.size(1) > 2 * m.num_features:
+                    adain_params = adain_params[:, 2 * m.num_features :]
+
+    def get_num_adain_params(self, model):
+        # return the number of AdaIN parameters needed by the model
+        num_adain_params = 0
+        for m in model.modules():
+            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
+                num_adain_params += 2 * m.num_features
+        return num_adain_params 
+
+##################################################################################
+# Downsampling and Upsampling
+##################################################################################
+class LocalUpsampler(nn.Module):
+    def __init__(self, input_nc, output_nc, ngf=32, n_downsample_global=3, n_blocks_global=9, n_blocks_local=3, padding_type='reflect'):        
+        super(LocalUpsampler, self).__init__()
+
+        ###### local enhancer layers #####          
+        ngf_global = ngf * (2**(n_local_enhancers-1))
+        ### residual blocks
+        model_upsample = []
+        for i in range(n_blocks_local):
+            model_upsample += [ResBlock(ngf_global * 2, pad_type=padding_type, norm='in')]
+        ### upsample
+        model_upsample += [nn.ConvTranspose2d(ngf_global * 2, ngf_global, kernel_size=3, stride=2, padding=1, output_padding=1), 
+                           nn.InstanceNorm2d(ngf_global), nn.ReLU(True)]      
+        ### final convolution       
+        model_upsample += [nn.ReflectionPad2d(3), nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0), nn.Tanh()]              
+        setattr(self, 'model_upsample', nn.Sequential(*model_upsample)) 
+    def forward(self, output_prev): 
+        ### build up one layer at a time                
+        return self.model_upsample(output_prev)
+
+class LocalDownsampler(nn.Module):
+    def __init__(self, input_nc, output_nc, ngf=32, n_downsample_global=3, n_blocks_global=9, n_blocks_local=3, padding_type='reflect'):        
+        super(LocalDownsampler, self).__init__()
+        
+        ### downsample            
+        ngf_global = ngf * (2**(n_local_enhancers-1))
+        model_downsample = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf_global, kernel_size=7, padding=0), 
+                            nn.InstanceNorm2d(ngf_global), nn.ReLU(True),
+                            nn.Conv2d(ngf_global, ngf_global * 2, kernel_size=3, stride=2, padding=1), 
+                            nn.InstanceNorm2d(ngf_global * 2), nn.ReLU(True)]
+        setattr(self, 'model_downsample', nn.Sequential(*model_downsample))
+    def forward(self, input):             
+        return self.model_downsample(input)
+    
 
 ##################################################################################
 # Encoder and Decoders

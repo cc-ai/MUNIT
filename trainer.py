@@ -62,6 +62,15 @@ class MUNIT_Trainer(nn.Module):
         self.dis_b = MsImageDis(
             hyperparameters["input_dim_b"], hyperparameters["dis"]
         )  # discriminator for domain b
+        
+        # HD DISCRIMINATOR
+        self.dis_a_HD = MsImageDis(
+            hyperparameters["input_dim_a"], hyperparameters["dis"]
+        )  # discriminator for domain a HD
+        self.dis_b_HD = MsImageDis(
+            hyperparameters["input_dim_b"], hyperparameters["dis"]
+        )  # discriminator for domain b HD
+        
         self.instancenorm = nn.InstanceNorm2d(512, affine=False)
         self.style_dim = hyperparameters["gen"]["style_dim"]
 

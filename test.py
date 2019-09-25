@@ -44,8 +44,8 @@ parser.add_argument(
 opts = parser.parse_args()
 
 # Set the seed value
-torch.manual_seed(opts.seed)
-torch.cuda.manual_seed(opts.seed)
+# torch.manual_seed(opts.seed)
+# torch.cuda.manual_seed(opts.seed)
 
 # Create output folder if it does not exist
 if not os.path.exists(opts.output_folder):
