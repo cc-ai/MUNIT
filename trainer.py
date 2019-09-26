@@ -3,7 +3,7 @@ Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 from comet_ml import Experiment
-from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen
+from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen,LocalUpsampler
 from utils import (
     weights_init,
     get_model_list,
@@ -34,7 +34,9 @@ class MUNIT_Trainer(nn.Module):
         self.newsize = hyperparameters["crop_image_height"]
         self.semantic_w = hyperparameters["semantic_w"] > 0
         self.recon_mask = hyperparameters["recon_mask"] == 1
+        self.is_HD = hyperparameters["is_HD"] == 1
         self.dann_scheduler = None
+        self.dis_HD_scheduler = None
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif = hyperparameters["domain_adv_w"] > 0
         else:
@@ -62,15 +64,7 @@ class MUNIT_Trainer(nn.Module):
         self.dis_b = MsImageDis(
             hyperparameters["input_dim_b"], hyperparameters["dis"]
         )  # discriminator for domain b
-        
-        # HD DISCRIMINATOR
-        self.dis_a_HD = MsImageDis(
-            hyperparameters["input_dim_a"], hyperparameters["dis"]
-        )  # discriminator for domain a HD
-        self.dis_b_HD = MsImageDis(
-            hyperparameters["input_dim_b"], hyperparameters["dis"]
-        )  # discriminator for domain b HD
-        
+         
         self.instancenorm = nn.InstanceNorm2d(512, affine=False)
         self.style_dim = hyperparameters["gen"]["style_dim"]
 
@@ -110,6 +104,25 @@ class MUNIT_Trainer(nn.Module):
         self.apply(weights_init(hyperparameters["init"]))
         self.dis_a.apply(weights_init("gaussian"))
         self.dis_b.apply(weights_init("gaussian"))
+
+        # Load HD Discriminator if needed
+        if self.is_HD:
+            # HD DISCRIMINATOR 
+            self.dis_a_HD = MsImageDis(hyperparameters["input_dim_a"], hyperparameters["dis"])  
+            self.dis_b_HD = MsImageDis(hyperparameters["input_dim_b"], hyperparameters["dis"])
+            # List parameters
+            dis_HD_params = list(self.dis_a_HD.parameters()) + list(self.dis_b_HD.parameters())
+            # Optimizers
+            self.dis_HD_opt = torch.optim.Adam(
+                [p for p in dis_HD_params if p.requires_grad],
+                lr=lr,
+                betas=(beta1, beta2),
+                weight_decay=hyperparameters["weight_decay"],
+            )
+            # Network weight initialization
+            self.dis_a_HD.apply(weights_init("gaussian"))
+            self.dis_b_HD.apply(weights_init("gaussian"))
+            self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt, hyperparameters)
 
         # Load VGG model if needed
         if "vgg_w" in hyperparameters.keys() and hyperparameters["vgg_w"] > 0:
@@ -397,6 +410,114 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_total.backward()
         self.gen_opt.step()
 
+
+    def gen_HD_update(
+        self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp=None, synth=False
+    ):
+        """Update HD generator (Upsampler & Downsampler)
+        
+        Arguments:
+            x_a {image}    -- image low res
+            x_a_HD {image} -- image high res
+            x_b {image}    -- image low res
+            x_b_HD {image} -- image high res
+            hyperparameters {dictionnary} -- dictionnary with all hyperparameters 
+
+            mask_a {torch.Tensor} -- binary mask (0,1) corresponding to the ground in x_a (default: {None})
+            mask_a_HD -- mask_a for HD image
+            mask_b {torch.Tensor} -- binary mask (0,1) corresponding to the water in x_b (default: {None})
+            mask_b_HD -- mask_b for HD image
+            comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})
+            synth {boolean}  -- binary True or False stating if we have a synthetic pair or not 
+        
+        Keyword Arguments:
+            comet_exp {[type]} -- [description] (default: {None})
+            synth {bool} -- [description] (default: {False})
+        """
+        self.gen_opt.zero_grad()
+        s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+
+        if self.gen_state == 1:
+            # encode
+            c_a, s_a_prime = self.gen.encode(x_a, 1)
+            c_b, s_b_prime = self.gen.encode(x_b, 2)
+
+            # decode (within domain)
+            x_a_recon,embedding_x_a = self.decode(c_a, s_a_prime, 1, return_content=True)
+            x_b_recon,embedding_x_b = self.decode(c_b, s_b_prime, 2, return_content=True)
+
+            # Downsample
+            Downsampled_x_a = self.localDown(x_a_HD)
+            Downsampled_x_b = self.localDown(x_b_HD)
+
+            # Upsample
+            x_a_recon_HD = self.localUp(embedding_x_a+Downsampled_x_a)
+            x_b_recon_HD = self.localUp(embedding_x_b+Downsampled_x_b)
+
+            # decode (cross domain)
+            if self.guided == 1:
+                x_ba, embedding_x_ba = self.gen.decode(c_b, s_a_prime, 1, return_content=True)
+                x_ab, embedding_x_ab = self.gen.decode(c_a, s_b_prime, 2, return_content=True)
+            else:
+                print("self.guided unknown value:", self.guided)
+            # Upsample
+            x_ab_HD = self.localUp(embedding_x_ab+Downsampled_x_a)
+            x_ba_HD = self.localUp(embedding_x_ba+Downsampled_x_b)
+
+            # # encode again
+            # c_b_recon, s_a_recon = self.gen.encode(x_ba, 1)
+            # c_a_recon, s_b_recon = self.gen.encode(x_ab, 2)
+            # # decode again (if needed)
+            # x_aba = (
+            #     self.gen.decode(c_a_recon, s_a_prime, 1)
+            #     if hyperparameters["recon_x_cyc_w"] > 0
+            #     else None
+            # )
+            # x_bab = (
+            #     self.gen.decode(c_b_recon, s_b_prime, 2)
+            #     if hyperparameters["recon_x_cyc_w"] > 0
+            #     else None
+            # )
+        else:
+            print("self.gen_state unknown value:", self.gen_state)
+
+        # reconstruction loss
+        self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon_HD, x_a_HD)
+        self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon_HD, x_b_HD)
+        
+
+        # GAN loss
+        self.loss_gen_adv_a = self.dis_a_HD.calc_gen_loss(x_ba_HD)
+        self.loss_gen_adv_b = self.dis_b_HD.calc_gen_loss(x_ab_HD)
+
+        # # # semantic-segmentation loss
+        # self.loss_sem_seg = (
+        #     self.compute_semantic_seg_loss(x_a.squeeze(), x_ab.squeeze(), mask_a)
+        #     + self.compute_semantic_seg_loss(x_b.squeeze(), x_ba.squeeze(), mask_b)
+        #     if hyperparameters["semantic_w"] > 0
+        #     else 0
+        # )
+
+        # total loss
+        self.loss_gen_total = (
+            hyperparameters["gan_w"] * self.loss_gen_adv_a
+            + hyperparameters["gan_w"] * self.loss_gen_adv_b
+            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_a
+            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_b
+        )
+        #            + hyperparameters["semantic_w"] * self.loss_sem_seg
+
+        if comet_exp is not None:
+            comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a)
+            comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b)
+            comet_exp.log_metric("loss_gen_recon_x_a_HD", self.loss_gen_recon_x_a)
+            comet_exp.log_metric("loss_gen_recon_x_b_HD", self.loss_gen_recon_x_b)
+            comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
+
+        self.loss_gen_total.backward()
+        self.gen_opt.step()
+
     def compute_vgg_loss(self, vgg, img, target):
         """ 
         Compute the domain-invariant perceptual loss
@@ -652,6 +773,65 @@ class MUNIT_Trainer(nn.Module):
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
+    def sample_HD(self, x_a, x_a_HD, x_b, x_b_HD):
+        """ 
+        Infer the model on a batch of image
+        
+        Arguments:
+            x_a {torch.Tensor} -- batch of image from domain A
+            x_b {[type]} -- batch of image from domain B
+        
+        Returns:
+            A list of torch images -- columnwise :x_a, autoencode(x_a), x_ab_1, x_ab_2
+            Or if self.semantic_w is true: x_a, autoencode(x_a), Semantic segmentation x_a, 
+            x_ab_1,semantic segmentation x_ab_1, x_ab_2
+        """
+        self.eval()
+        s_a1 = Variable(self.s_a)
+        s_b1 = Variable(self.s_b)
+        s_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
+
+        if self.gen_state == 1:
+            for i in range(x_a.size(0)):
+                # encode
+                c_a, s_a_prime = self.gen.encode(x_a[i].unsqueeze(0), 1)
+                c_b, s_b_prime = self.gen.encode(x_b[i].unsqueeze(0), 2)
+
+                # decode (within domain)
+                x_a_recon,embedding_x_a = self.decode(c_a, s_a_prime, 1, return_content=True)
+                x_b_recon,embedding_x_b = self.decode(c_b, s_b_prime, 2, return_content=True)
+
+                # Downsample
+                Downsampled_x_a = self.localDown(x_a_HD)
+                Downsampled_x_b = self.localDown(x_b_HD)
+
+                # Upsample
+                x_a_recon_HD = self.localUp(embedding_x_a+Downsampled_x_a)
+                x_b_recon_HD = self.localUp(embedding_x_b+Downsampled_x_b)
+
+                # decode (cross domain)
+                if self.guided == 1:
+                    x_ba, embedding_x_ba = self.gen.decode(c_b, s_a_prime, 1, return_content=True)
+                    x_ab, embedding_x_ab = self.gen.decode(c_a, s_b_prime, 2, return_content=True)
+                else:
+                    print("self.guided unknown value:", self.guided)
+
+                # Upsample
+                x_ab_HD = self.localUp(embedding_x_ab+Downsampled_x_a)
+                x_ba_HD = self.localUp(embedding_x_ba+Downsampled_x_b)
+
+        else:
+            print("self.gen_state unknown value:", self.gen_state)
+
+        x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
+        x_ba1 = torch.cat(x_ba1)
+        x_ab1 = torch.cat(x_ab1)
+
+        
+        return x_a_HD, x_a_recon_HD, x_ab_HD, x_b_HD, x_b_recon_HD, x_ba_HD
+
     def sample_fid(self, x_a, x_b):
         """ 
         Infer the model on a batch of image
@@ -762,6 +942,58 @@ class MUNIT_Trainer(nn.Module):
         self.loss_dis_total.backward()
         self.dis_opt.step()
 
+    def dis_HD_update(self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, comet_exp=None):
+        """
+        Update the weights of the discriminator
+        
+        Arguments:
+            x_a {torch.Tensor} -- Image from domain A after transform in tensor format
+            x_b {torch.Tensor} -- Image from domain B after transform in tensor format
+            hyperparameters {dictionnary} -- dictionnary with all hyperparameters 
+        
+        Keyword Arguments:
+            comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})        
+        """
+        self.dis_HD_opt.zero_grad()
+        s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+
+        if self.gen_state == 1:
+            # encode
+            c_a, s_a_prime = self.gen.encode(x_a, 1)
+            c_b, s_b_prime = self.gen.encode(x_b, 2)
+            # decode (cross domain)
+            if self.guided == 1:
+                x_ba, embedding_xba = self.gen.decode(c_b, s_a_prime, 1, return_content =True)
+                x_ab, embedding_xab = self.gen.decode(c_a, s_b_prime, 2, return_content =True)
+            else:
+                print("self.guided unknown value:", self.guided)
+        else:
+            print("self.gen_state unknown value:", self.gen_state)
+
+        # Downsampling part
+        Downsampled_x_a = self.localDown(x_a_HD)
+        Downsampled_x_b = self.localDown(x_b_HD)
+
+        # Upsampling part
+        upsampled_xab = self.localUp(embedding_xab+Downsampled_x_a)
+        upsampled_xba = self.localUp(embedding_xba+Downsampled_x_b)
+
+        # Dis_HD loss
+        self.loss_dis_HD_a = self.dis_a_HD.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
+        self.loss_dis_HD_b = self.dis_b_HD.calc_dis_loss(upsampled_xab.detach(),x_b_HD) #x_ab.detach(), x_b)
+
+        if comet_exp is not None:
+            comet_exp.log_metric("loss_dis_HD_b", self.loss_dis_HD_b)
+            comet_exp.log_metric("loss_dis_HD_a", self.loss_dis_HD_a)
+
+        self.loss_dis_total = (
+            hyperparameters["gan_w"] * self.loss_dis_HD_a
+            + hyperparameters["gan_w"] * self.loss_dis_HD_b
+        )
+        self.loss_dis_total.backward()
+        self.dis_HD_opt.step()
+
     def domain_classifier_update(self, x_a, x_b, hyperparameters, comet_exp=None):
         """
         Update the weights of the domain classifier
@@ -811,6 +1043,10 @@ class MUNIT_Trainer(nn.Module):
         if self.dann_scheduler is not None:
             self.dann_scheduler.step()
 
+    def update_learning_rate_HD(self):
+        if self.dis_HD_scheduler is not None:
+            self.dis_HD_scheduler.step()
+
     def resume(self, checkpoint_dir, hyperparameters):
         """
         Resume the training loading the network parameters
@@ -859,9 +1095,25 @@ class MUNIT_Trainer(nn.Module):
         self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters, iterations)
         self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
         print("Resume from iteration %d" % iterations)
-        return iterations
 
-    def save(self, snapshot_dir, iterations):
+        # IS HD
+        if self.is_HD:
+            # Load discriminators
+            last_model_name = get_model_list(checkpoint_dir, "dis_HD")
+            iterations_HD = int(last_model_name[-11:-3])
+            state_dict = torch.load(last_model_name)
+            self.dis_a_HD.load_state_dict(state_dict["a"])
+            self.dis_b_HD.load_state_dict(state_dict["b"])
+            # Load optimizers
+            state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer.pt"))
+            self.dis_HD_opt.load_state_dict(state_dict["dis_HD"])
+            # Reinitilize schedulers
+            self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt,hyperparameters,iterations_HD)
+            return iterations, iterations_HD
+        else:
+            return iterations
+
+    def save(self, snapshot_dir, iterations,iterations_HD=0):
         """
         Save generators, discriminators, and optimizers
         
@@ -872,6 +1124,7 @@ class MUNIT_Trainer(nn.Module):
         # Save generators, discriminators, and optimizers
         gen_name = os.path.join(snapshot_dir, "gen_%08d.pt" % (iterations + 1))
         dis_name = os.path.join(snapshot_dir, "dis_%08d.pt" % (iterations + 1))
+        dis_HD_name = os.path.join(snapshot_dir, "dis_HD_%08d.pt" % (iterations_HD + 1))
         domain_classifier_name = os.path.join(
             snapshot_dir, "domain_classifier_%08d.pt" % (iterations + 1)
         )
@@ -885,8 +1138,9 @@ class MUNIT_Trainer(nn.Module):
         else:
             print("self.gen_state unknown value:", self.gen_state)
         torch.save(
-            {"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_name
-        )
+                {"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_name
+            )
+
         if self.domain_classif:
             torch.save(
                 {"d": self.domain_classifier.state_dict()}, domain_classifier_name
@@ -899,11 +1153,21 @@ class MUNIT_Trainer(nn.Module):
                 },
                 opt_name,
             )
+        elif self.is_HD:
+            torch.save(
+                {"a": self.dis_a_HD.state_dict(), "b": self.dis_b_HD.state_dict()}, dis_HD_name
+            )
+            torch.save(
+                {"gen": self.gen_opt.state_dict(), "dis": self.dis_opt.state_dict(),"dis_HD": self.dis_HD_opt.state_dict()},
+                opt_name,
+            )
         else:
             torch.save(
                 {"gen": self.gen_opt.state_dict(), "dis": self.dis_opt.state_dict()},
                 opt_name,
             )
+        
+
 
 
 class UNIT_Trainer(nn.Module):
@@ -1089,6 +1353,7 @@ class UNIT_Trainer(nn.Module):
         )
         self.loss_dis_total.backward()
         self.dis_opt.step()
+
 
     def update_learning_rate(self):
         if self.dis_scheduler is not None:

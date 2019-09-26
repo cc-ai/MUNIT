@@ -2,7 +2,7 @@
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from torch.utils.serialization import load_lua
+# from torch.utils.serialization import load_lua
 from torch.utils.data import DataLoader, Dataset
 from networks import Vgg16
 from torch.autograd import Variable
@@ -434,6 +434,49 @@ class DatasetHD(Dataset):
             int -- dataset length
         """
         return len(self.image_paths)
+
+def get_data_loader_mask_and_im_HD(
+    file_list,
+    mask_list,
+    batch_size,
+    train,
+    new_size=None,
+    new_size_hd=None,
+    height=512,
+    width=512,
+    num_workers=4,
+    crop=True,
+    ):
+    """
+    Masks and images lists-based data loader with transformations
+    (horizontal flip, resizing, normalization are handled)
+    
+    Arguments:
+        file_list {str list} -- list of images filenames
+        mask_list {str list} -- list of masks filenames
+        batch_size {int} -- batch size
+        train {bool} -- training
+    
+    Keyword Arguments:
+        new_size {int} -- parameter for resizing (default: {None})
+        height {int} -- dimension for random cropping (default: {256})
+        width {int} -- dimension for random cropping (default: {256})
+        num_workers {int} -- number of workers (default: {4})
+        crop {bool} -- crop(default: {True})
+
+    Returns:
+        loader -- data loader with transformed dataset
+    """
+
+    dataset = DatasetHD(file_list,mask_list,new_size,new_size_hd,height,width)
+    loader = DataLoader(
+        dataset=dataset,
+        batch_size=batch_size,
+        shuffle=train,
+        drop_last=True,
+        num_workers=num_workers,
+    )
+    return loader
 
 class DatasetInferenceFID(Dataset):
     """
