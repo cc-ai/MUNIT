@@ -451,8 +451,8 @@ class MUNIT_Trainer(nn.Module):
             c_b, s_b_prime = self.gen.encode(x_b, 2)
 
             # decode (within domain)
-            x_a_recon,embedding_x_a = self.decode(c_a, s_a_prime, 1, return_content=True)
-            x_b_recon,embedding_x_b = self.decode(c_b, s_b_prime, 2, return_content=True)
+            x_a_recon,embedding_x_a = self.gen.decode(c_a, s_a_prime, 1, return_content=True)
+            x_b_recon,embedding_x_b = self.gen.decode(c_b, s_b_prime, 2, return_content=True)
 
             # Downsample
             Downsampled_x_a = self.gen.localDown(x_a_HD)
@@ -807,8 +807,8 @@ class MUNIT_Trainer(nn.Module):
                 c_b, s_b_prime = self.gen.encode(x_b[i].unsqueeze(0), 2)
 
                 # decode (within domain)
-                x_a_recon,embedding_x_a = self.decode(c_a, s_a_prime, 1, return_content=True)
-                x_b_recon,embedding_x_b = self.decode(c_b, s_b_prime, 2, return_content=True)
+                x_a_recon,embedding_x_a = self.gen.decode(c_a, s_a_prime, 1, return_content=True)
+                x_b_recon,embedding_x_b = self.gen.decode(c_b, s_b_prime, 2, return_content=True)
 
                 # Downsample
                 Downsampled_x_a = self.gen.localDown(x_a_HD)
