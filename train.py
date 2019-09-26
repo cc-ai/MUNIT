@@ -354,8 +354,10 @@ else:
                 # Continue the Dev here 
                 if (iteration_G2 + 1)% config["ratio_disc_gen"] ==0:
                     trainer.gen_HD_update(
-                        images_a, images_HD_a, images_b, images_HD_b, config, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp
-                        )
+                        images_a, images_HD_a, images_b, images_HD_b, 
+                        config, mask_a, mask_HD_a, mask_b, mask_HD_b, 
+                        comet_exp
+                    )
                 torch.cuda.synchronize()
                 
             # Write images

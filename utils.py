@@ -382,7 +382,7 @@ class DatasetHD(Dataset):
         resize_HD = transforms.Resize((h,w))
         
         # Define Resize for G1
-        resize    = transforms.Resize(self.new_size)
+        resize    = transforms.Resize((h//2,w//2))
         
         # Resize for HD
         image_HD = resize_HD(image)

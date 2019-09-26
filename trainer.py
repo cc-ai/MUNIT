@@ -984,11 +984,15 @@ class MUNIT_Trainer(nn.Module):
         
         print("embedding_xab .shape ", embedding_xab.shape)
         print("Downsampled_x_a.shape", Downsampled_x_a.shape)
+        print("embedding_xab .shape ", embedding_xba.shape)
+        print("Downsampled_x_a.shape", Downsampled_x_b.shape)
         
         # Upsampling part
         upsampled_xab = self.gen.localUp(embedding_xab+Downsampled_x_a)
         upsampled_xba = self.gen.localUp(embedding_xba+Downsampled_x_b)
 
+
+        
         # Dis_HD loss
         self.loss_dis_HD_a = self.dis_a_HD.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
         self.loss_dis_HD_b = self.dis_b_HD.calc_dis_loss(upsampled_xab.detach(),x_b_HD) #x_ab.detach(), x_b)

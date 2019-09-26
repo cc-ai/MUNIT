@@ -507,7 +507,7 @@ class AdaINGen_double_HD(nn.Module):
             if encoder_name == 1:
                 adain_params = self.mlp1(style)
                 self.assign_adain_params(adain_params, self.dec1)
-                images = self.dec1.model[:-1](content)
+                content = self.dec1.model[:-1](content)
             elif encoder_name == 2:
                 adain_params = self.mlp2(style)
                 self.assign_adain_params(adain_params, self.dec2)
