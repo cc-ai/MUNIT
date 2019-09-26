@@ -370,30 +370,39 @@ class DatasetHD(Dataset):
             mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
 
         # Resizing to the closest multiple of 4 (pix2pix)
+        new_size_hd =512
         ow, oh = image.size
-        ow, oh = self.new_size_hd,int(round(self.new_size_hd*oh/ow))
+        aspect_ratio = ow/oh
+        if aspect_ratio <1:
+            ow, oh = new_size_hd,int(round(self.new_size_hd*oh/ow))
+        else:
+            ow, oh = int(round(self.new_size_hd*ow/oh)),self.new_size_hd
+            
         base = 4
         h = int(round(oh / base) * base)
         w = int(round(ow / base) * base)
-
-        
         # print('debugging mask transform 2 size',mask.size)
         # Define Resize HD (multiple of 4) used by the downsampler
         resize_HD = transforms.Resize((h,w))
         
-        # Define Resize for G1
-        resize    = transforms.Resize((h//2,w//2))
-        
         # Resize for HD
         image_HD = resize_HD(image)
         
+        # Resize mask HD
+        mask_HD = mask.resize((image_HD.width, image_HD.height), Image.NEAREST)
+        
+        i, j, h, w = transforms.RandomCrop.get_params(
+            image_HD, output_size=(self.new_size_hd, self.new_size_hd)
+        )
+        image_HD = F.crop(image_HD, i, j, h, w)
+        mask_HD = F.crop(mask_HD, i, j, h, w)
+        
+        # Define Resize for G1
+        resize    = transforms.Resize((self.new_size,self.new_size))
+        
         # Resize for G1
         image = resize(image_HD)
-        
-        # print('dim image after resize',image.size)
-        # Resize mask
-        mask_HD = mask.resize((image_HD.width, image_HD.height), Image.NEAREST)
-        mask = mask.resize((image.width, image.height), Image.NEAREST)
+        mask = mask_HD.resize((image.width, image.height), Image.NEAREST)
 
         # Transform to tensor
         to_tensor = transforms.ToTensor()

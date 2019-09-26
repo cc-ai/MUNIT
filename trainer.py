@@ -105,7 +105,7 @@ class MUNIT_Trainer(nn.Module):
         if self.train_G2_only:
             # Define parameter of the local upsampler and local downsampler
             G2_params = list(self.gen.localUp.parameters()) +  list(self.gen.localDown.parameters())
-            self.gen_HD_opt = torch.optim.Adam(
+            self.gen_opt_HD = torch.optim.Adam(
                 [p for p in G2_params if p.requires_grad],
                 lr=lr,
                 betas=(beta1, beta2),
@@ -124,7 +124,7 @@ class MUNIT_Trainer(nn.Module):
                 weight_decay=hyperparameters["weight_decay"],
             )
             self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt, hyperparameters)
-            self.gen_HD_scheduler = get_scheduler(self.gen_HD_opt, hyperparameters)
+            self.gen_HD_scheduler = get_scheduler(self.gen_opt_HD, hyperparameters)
 
             # Network weight initialization
             self.dis_a_HD.apply(weights_init("gaussian"))
@@ -523,7 +523,7 @@ class MUNIT_Trainer(nn.Module):
             comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
 
         self.loss_gen_total.backward()
-        self.gen_opt.step()
+        self.gen_opt_HD.step()
 
     def compute_vgg_loss(self, vgg, img, target):
         """ 
@@ -798,7 +798,7 @@ class MUNIT_Trainer(nn.Module):
         s_b1 = Variable(self.s_b)
         s_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
-        x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
+        x_a_recon_HD, x_b_recon_HD, x_ab_HD, x_ba_HD, x_ab_, x_ba_ = [], [], [], [], [], []
 
         if self.gen_state == 1:
             for i in range(x_a.size(0)):
@@ -815,29 +815,33 @@ class MUNIT_Trainer(nn.Module):
                 Downsampled_x_b = self.gen.localDown(x_b_HD)
 
                 # Upsample
-                x_a_recon_HD = self.gen.localUp(embedding_x_a+Downsampled_x_a)
-                x_b_recon_HD = self.gen.localUp(embedding_x_b+Downsampled_x_b)
-
+                x_a_recon_HD.append(self.gen.localUp(embedding_x_a+Downsampled_x_a))
+                x_b_recon_HD.append(self.gen.localUp(embedding_x_b+Downsampled_x_b))
+                
                 # decode (cross domain)
                 if self.guided == 1:
                     x_ba, embedding_x_ba = self.gen.decode(c_b, s_a_prime, 1, return_content=True)
                     x_ab, embedding_x_ab = self.gen.decode(c_a, s_b_prime, 2, return_content=True)
                 else:
                     print("self.guided unknown value:", self.guided)
-
+                 
+                x_ab_.append(nn.Upsample(scale_factor=2, mode='nearest')(x_ab))
+                x_ba_.append(nn.Upsample(scale_factor=2, mode='nearest')(x_ba))
                 # Upsample
-                x_ab_HD = self.gen.localUp(embedding_x_ab+Downsampled_x_a)
-                x_ba_HD = self.gen.localUp(embedding_x_ba+Downsampled_x_b)
+                x_ab_HD.append(self.gen.localUp(embedding_x_ab + Downsampled_x_a))
+                x_ba_HD.append(self.gen.localUp(embedding_x_ba + Downsampled_x_b))
 
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
-        x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
-        x_ba1 = torch.cat(x_ba1)
-        x_ab1 = torch.cat(x_ab1)
+        x_a_recon_HD, x_b_recon_HD = torch.cat(x_a_recon_HD), torch.cat(x_b_recon_HD)
+        x_ba_HD = torch.cat(x_ba_HD)
+        x_ab_HD = torch.cat(x_ab_HD)
+        x_ab_ = torch.cat(x_ab_)
+        x_ba_ = torch.cat(x_ba_)
 
         
-        return x_a_HD, x_a_recon_HD, x_ab_HD, x_b_HD, x_b_recon_HD, x_ba_HD
+        return x_a_HD, x_a_recon_HD, x_ab_, x_ab_HD, x_b_HD, x_b_recon_HD, x_ba_, x_ba_HD
 
     def sample_fid(self, x_a, x_b):
         """ 
@@ -982,16 +986,14 @@ class MUNIT_Trainer(nn.Module):
         Downsampled_x_a = self.gen.localDown(x_a_HD)
         Downsampled_x_b = self.gen.localDown(x_b_HD)
         
-        print("embedding_xab .shape ", embedding_xab.shape)
-        print("Downsampled_x_a.shape", Downsampled_x_a.shape)
-        print("embedding_xab .shape ", embedding_xba.shape)
-        print("Downsampled_x_a.shape", Downsampled_x_b.shape)
+        #         print("embedding_xab .shape ", embedding_xab.shape)
+        #         print("Downsampled_x_a.shape", Downsampled_x_a.shape)
+        #         print("embedding_xab .shape ", embedding_xba.shape)
+        #         print("Downsampled_x_a.shape", Downsampled_x_b.shape)
         
         # Upsampling part
         upsampled_xab = self.gen.localUp(embedding_xab+Downsampled_x_a)
         upsampled_xba = self.gen.localUp(embedding_xba+Downsampled_x_b)
-
-
         
         # Dis_HD loss
         self.loss_dis_HD_a = self.dis_a_HD.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
@@ -1063,7 +1065,7 @@ class MUNIT_Trainer(nn.Module):
         if self.gen_HD_scheduler is not None:
             self.gen_HD_scheduler.step()
 
-    def resume(self, checkpoint_dir, hyperparameters):
+    def resume(self, checkpoint_dir, hyperparameters,HD_ckpt=False):
         """
         Resume the training loading the network parameters
         
@@ -1077,11 +1079,13 @@ class MUNIT_Trainer(nn.Module):
         # Load generators
         last_model_name = get_model_list(checkpoint_dir, "gen")
         state_dict = torch.load(last_model_name)
-        if self.gen_state == 0:
-            self.gen_a.load_state_dict(state_dict["a"])
-            self.gen_b.load_state_dict(state_dict["b"])
-        elif self.gen_state == 1:
-            self.gen.load_state_dict(state_dict["2"])
+        
+        # overwrite entries in the existing state dict
+        gen_dict = self.gen.state_dict()
+        
+        if self.gen_state == 1:
+            gen_dict.update(state_dict["2"]) 
+            self.gen.load_state_dict(gen_dict)
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
@@ -1113,7 +1117,7 @@ class MUNIT_Trainer(nn.Module):
         print("Resume from iteration %d" % iterations)
 
         # IS HD
-        if self.train_G2_only:
+        if self.train_G2_only and HD_ckpt:
             # Load discriminators HD
             last_model_name = get_model_list(checkpoint_dir, "dis_HD")
             iterations_HD = int(last_model_name[-11:-3])
@@ -1130,15 +1134,15 @@ class MUNIT_Trainer(nn.Module):
             # Load G2 optimizers
             state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer_G2.pt"))
             self.dis_HD_opt.load_state_dict(state_dict["dis_HD"])
-            self.gen_HD_opt.load_state_dict(state_dict["gen_HD"])
+            self.gen_opt_HD.load_state_dict(state_dict["gen_HD"])
             # Reinitilize schedulers
             self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt,hyperparameters,iterations_HD)
-            self.gen_HD_scheduler = get_scheduler(self.gen_HD_opt,hyperparameters,iterations_HD)
+            self.gen_HD_scheduler = get_scheduler(self.gen_opt_HD,hyperparameters,iterations_HD)
             return iterations, iterations_HD
         else:
             return iterations
 
-    def save(self, snapshot_dir, iterations,iterations_HD=0):
+    def save(self, snapshot_dir, iterations, iterations_HD=0):
         """
         Save generators, discriminators, and optimizers
         
