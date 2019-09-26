@@ -312,7 +312,7 @@ else:
 
     # Instantiate dataloader for G2
     train_G2 = True
-    train_loader_a_w_mask = get_data_loader_mask_and_im(
+    train_loader_a_w_mask = get_data_loader_mask_and_im_HD(
         config["data_list_train_a"],
         config["data_list_train_a_seg"],
         config["batch_size"],
@@ -325,7 +325,7 @@ else:
         crop=True,
     )
 
-    train_loader_b_w_mask = get_data_loader_mask_and_im(
+    train_loader_b_w_mask = get_data_loader_mask_and_im_HD(
         config["data_list_train_b"],
         config["data_list_train_b_seg"],
         config["batch_size"],

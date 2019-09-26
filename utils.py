@@ -409,7 +409,7 @@ class DatasetHD(Dataset):
         # print('debugging mask transform 5 size',mask.size)
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        image_HD = normalizer(image)
+        image_HD = normalizer(image_HD)
         image    = normalizer(image)
         return image_HD, mask_HD, image, mask 
 
@@ -424,8 +424,8 @@ class DatasetHD(Dataset):
         """
         image = Image.open(self.image_paths[index][0]).convert("RGB")
         mask = Image.open(self.target_paths[index][0])
-        x, y = self.transform(image, mask)
-        return x, y
+        image_HD, mask_HD, image, mask = self.transform(image, mask)
+        return image_HD, mask_HD, image, mask
 
     def __len__(self):
         """return dataset length
@@ -440,10 +440,10 @@ def get_data_loader_mask_and_im_HD(
     mask_list,
     batch_size,
     train,
-    new_size=None,
-    new_size_hd=None,
-    height=512,
-    width=512,
+    new_size = None,
+    new_size_HD = None,
+    height = 512,
+    width  = 512,
     num_workers=4,
     crop=True,
     ):
@@ -468,7 +468,7 @@ def get_data_loader_mask_and_im_HD(
         loader -- data loader with transformed dataset
     """
 
-    dataset = DatasetHD(file_list,mask_list,new_size,new_size_hd,height,width)
+    dataset = DatasetHD(file_list,mask_list,new_size,new_size_HD,height,width)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,

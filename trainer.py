@@ -71,13 +71,13 @@ class MUNIT_Trainer(nn.Module):
         dis_params = list(self.dis_a.parameters()) + list(self.dis_b.parameters())
 
         if self.gen_state == 1:
-            G1_param =  list(trainer.gen.enc_style.parameters())    + \
-                        list(trainer.gen.enc1_content.parameters()) + \
-                        list(trainer.gen.enc2_content.parameters()) + \
-                        list(trainer.gen.dec1.parameters()) + \
-                        list(trainer.gen.dec2.parameters()) + \
-                        list(trainer.gen.mlp1.parameters()) + \
-                        list(trainer.gen.mlp2.parameters())
+            G1_param =  list(self.gen.enc_style.parameters())    + \
+                        list(self.gen.enc1_content.parameters()) + \
+                        list(self.gen.enc2_content.parameters()) + \
+                        list(self.gen.dec1.parameters()) + \
+                        list(self.gen.dec2.parameters()) + \
+                        list(self.gen.mlp1.parameters()) + \
+                        list(self.gen.mlp2.parameters())
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
@@ -104,7 +104,7 @@ class MUNIT_Trainer(nn.Module):
         # Load HD Discriminator if needed
         if self.train_G2_only:
             # Define parameter of the local upsampler and local downsampler
-            G2_params = list(trainer.gen.localUp.parameters()) +  list(trainer.gen.localDown.parameters())
+            G2_params = list(self.gen.localUp.parameters()) +  list(self.gen.localDown.parameters())
             self.gen_HD_opt = torch.optim.Adam(
                 [p for p in G2_params if p.requires_grad],
                 lr=lr,
@@ -129,7 +129,7 @@ class MUNIT_Trainer(nn.Module):
             # Network weight initialization
             self.dis_a_HD.apply(weights_init("gaussian"))
             self.dis_b_HD.apply(weights_init("gaussian"))
-            self.gen_HD_opt.apply(weights_init(hyperparameters["init"]))
+            
 
         # Load VGG model if needed
         if "vgg_w" in hyperparameters.keys() and hyperparameters["vgg_w"] > 0:
@@ -455,12 +455,12 @@ class MUNIT_Trainer(nn.Module):
             x_b_recon,embedding_x_b = self.decode(c_b, s_b_prime, 2, return_content=True)
 
             # Downsample
-            Downsampled_x_a = self.localDown(x_a_HD)
-            Downsampled_x_b = self.localDown(x_b_HD)
+            Downsampled_x_a = self.gen.localDown(x_a_HD)
+            Downsampled_x_b = self.gen.localDown(x_b_HD)
 
             # Upsample
-            x_a_recon_HD = self.localUp(embedding_x_a+Downsampled_x_a)
-            x_b_recon_HD = self.localUp(embedding_x_b+Downsampled_x_b)
+            x_a_recon_HD = self.gen.localUp(embedding_x_a+Downsampled_x_a)
+            x_b_recon_HD = self.gen.localUp(embedding_x_b+Downsampled_x_b)
 
             # decode (cross domain)
             if self.guided == 1:
@@ -469,8 +469,8 @@ class MUNIT_Trainer(nn.Module):
             else:
                 print("self.guided unknown value:", self.guided)
             # Upsample
-            x_ab_HD = self.localUp(embedding_x_ab+Downsampled_x_a)
-            x_ba_HD = self.localUp(embedding_x_ba+Downsampled_x_b)
+            x_ab_HD = self.gen.localUp(embedding_x_ab+Downsampled_x_a)
+            x_ba_HD = self.gen.localUp(embedding_x_ba+Downsampled_x_b)
 
             # # encode again
             # c_b_recon, s_a_recon = self.gen.encode(x_ba, 1)
@@ -811,12 +811,12 @@ class MUNIT_Trainer(nn.Module):
                 x_b_recon,embedding_x_b = self.decode(c_b, s_b_prime, 2, return_content=True)
 
                 # Downsample
-                Downsampled_x_a = self.localDown(x_a_HD)
-                Downsampled_x_b = self.localDown(x_b_HD)
+                Downsampled_x_a = self.gen.localDown(x_a_HD)
+                Downsampled_x_b = self.gen.localDown(x_b_HD)
 
                 # Upsample
-                x_a_recon_HD = self.localUp(embedding_x_a+Downsampled_x_a)
-                x_b_recon_HD = self.localUp(embedding_x_b+Downsampled_x_b)
+                x_a_recon_HD = self.gen.localUp(embedding_x_a+Downsampled_x_a)
+                x_b_recon_HD = self.gen.localUp(embedding_x_b+Downsampled_x_b)
 
                 # decode (cross domain)
                 if self.guided == 1:
@@ -826,8 +826,8 @@ class MUNIT_Trainer(nn.Module):
                     print("self.guided unknown value:", self.guided)
 
                 # Upsample
-                x_ab_HD = self.localUp(embedding_x_ab+Downsampled_x_a)
-                x_ba_HD = self.localUp(embedding_x_ba+Downsampled_x_b)
+                x_ab_HD = self.gen.localUp(embedding_x_ab+Downsampled_x_a)
+                x_ba_HD = self.gen.localUp(embedding_x_ba+Downsampled_x_b)
 
         else:
             print("self.gen_state unknown value:", self.gen_state)
@@ -979,12 +979,15 @@ class MUNIT_Trainer(nn.Module):
             print("self.gen_state unknown value:", self.gen_state)
 
         # Downsampling part
-        Downsampled_x_a = self.localDown(x_a_HD)
-        Downsampled_x_b = self.localDown(x_b_HD)
-
+        Downsampled_x_a = self.gen.localDown(x_a_HD)
+        Downsampled_x_b = self.gen.localDown(x_b_HD)
+        
+        print("embedding_xab .shape ", embedding_xab.shape)
+        print("Downsampled_x_a.shape", Downsampled_x_a.shape)
+        
         # Upsampling part
-        upsampled_xab = self.localUp(embedding_xab+Downsampled_x_a)
-        upsampled_xba = self.localUp(embedding_xba+Downsampled_x_b)
+        upsampled_xab = self.gen.localUp(embedding_xab+Downsampled_x_a)
+        upsampled_xba = self.gen.localUp(embedding_xba+Downsampled_x_b)
 
         # Dis_HD loss
         self.loss_dis_HD_a = self.dis_a_HD.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
@@ -1053,6 +1056,8 @@ class MUNIT_Trainer(nn.Module):
     def update_learning_rate_HD(self):
         if self.dis_HD_scheduler is not None:
             self.dis_HD_scheduler.step()
+        if self.gen_HD_scheduler is not None:
+            self.gen_HD_scheduler.step()
 
     def resume(self, checkpoint_dir, hyperparameters):
         """
