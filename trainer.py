@@ -3,7 +3,7 @@ Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 from comet_ml import Experiment
-from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen,LocalUpsampler
+from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen,LocalUpsampler,AdaINGen_double_HD
 from utils import (
     weights_init,
     get_model_list,
@@ -34,29 +34,21 @@ class MUNIT_Trainer(nn.Module):
         self.newsize = hyperparameters["crop_image_height"]
         self.semantic_w = hyperparameters["semantic_w"] > 0
         self.recon_mask = hyperparameters["recon_mask"] == 1
-        self.is_HD = hyperparameters["is_HD"] == 1
+        self.train_G2_only = hyperparameters["train_G2_only"] == 1
         self.dann_scheduler = None
         self.dis_HD_scheduler = None
+        self.gen_HD_scheduler = None
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif = hyperparameters["domain_adv_w"] > 0
         else:
             self.domain_classif = False
 
-        if self.gen_state == 0:
-            # Initiate the networks
-            self.gen_a = AdaINGen(
-                hyperparameters["input_dim_a"], hyperparameters["gen"]
-            )  # auto-encoder for domain a
-            self.gen_b = AdaINGen(
-                hyperparameters["input_dim_b"], hyperparameters["gen"]
-            )  # auto-encoder for domain b
-
-        elif self.gen_state == 1:
-            self.gen = AdaINGen_double(
+        if self.gen_state == 1 and self.train_G2_only == 1:
+            self.gen = AdaINGen_double_HD(
                 hyperparameters["input_dim_a"], hyperparameters["gen"]
             )
         else:
-            print("self.gen_state unknown value:", self.gen_state)
+            print("self.gen_state unknown value: or not HD", self.gen_state)
 
         self.dis_a = MsImageDis(
             hyperparameters["input_dim_a"], hyperparameters["dis"]
@@ -78,10 +70,14 @@ class MUNIT_Trainer(nn.Module):
         beta2 = hyperparameters["beta2"]
         dis_params = list(self.dis_a.parameters()) + list(self.dis_b.parameters())
 
-        if self.gen_state == 0:
-            gen_params = list(self.gen_a.parameters()) + list(self.gen_b.parameters())
-        elif self.gen_state == 1:
-            gen_params = list(self.gen.parameters())
+        if self.gen_state == 1:
+            G1_param =  list(trainer.gen.enc_style.parameters())    + \
+                        list(trainer.gen.enc1_content.parameters()) + \
+                        list(trainer.gen.enc2_content.parameters()) + \
+                        list(trainer.gen.dec1.parameters()) + \
+                        list(trainer.gen.dec2.parameters()) + \
+                        list(trainer.gen.mlp1.parameters()) + \
+                        list(trainer.gen.mlp2.parameters())
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
@@ -92,7 +88,7 @@ class MUNIT_Trainer(nn.Module):
             weight_decay=hyperparameters["weight_decay"],
         )
         self.gen_opt = torch.optim.Adam(
-            [p for p in gen_params if p.requires_grad],
+            [p for p in G1_param if p.requires_grad],
             lr=lr,
             betas=(beta1, beta2),
             weight_decay=hyperparameters["weight_decay"],
@@ -106,7 +102,15 @@ class MUNIT_Trainer(nn.Module):
         self.dis_b.apply(weights_init("gaussian"))
 
         # Load HD Discriminator if needed
-        if self.is_HD:
+        if self.train_G2_only:
+            # Define parameter of the local upsampler and local downsampler
+            G2_params = list(trainer.gen.localUp.parameters()) +  list(trainer.gen.localDown.parameters())
+            self.gen_HD_opt = torch.optim.Adam(
+                [p for p in G2_params if p.requires_grad],
+                lr=lr,
+                betas=(beta1, beta2),
+                weight_decay=hyperparameters["weight_decay"],
+            )
             # HD DISCRIMINATOR 
             self.dis_a_HD = MsImageDis(hyperparameters["input_dim_a"], hyperparameters["dis"])  
             self.dis_b_HD = MsImageDis(hyperparameters["input_dim_b"], hyperparameters["dis"])
@@ -119,10 +123,13 @@ class MUNIT_Trainer(nn.Module):
                 betas=(beta1, beta2),
                 weight_decay=hyperparameters["weight_decay"],
             )
+            self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt, hyperparameters)
+            self.gen_HD_scheduler = get_scheduler(self.gen_HD_opt, hyperparameters)
+
             # Network weight initialization
             self.dis_a_HD.apply(weights_init("gaussian"))
             self.dis_b_HD.apply(weights_init("gaussian"))
-            self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt, hyperparameters)
+            self.gen_HD_opt.apply(weights_init(hyperparameters["init"]))
 
         # Load VGG model if needed
         if "vgg_w" in hyperparameters.keys() and hyperparameters["vgg_w"] > 0:
@@ -1097,18 +1104,27 @@ class MUNIT_Trainer(nn.Module):
         print("Resume from iteration %d" % iterations)
 
         # IS HD
-        if self.is_HD:
-            # Load discriminators
+        if self.train_G2_only:
+            # Load discriminators HD
             last_model_name = get_model_list(checkpoint_dir, "dis_HD")
             iterations_HD = int(last_model_name[-11:-3])
             state_dict = torch.load(last_model_name)
             self.dis_a_HD.load_state_dict(state_dict["a"])
             self.dis_b_HD.load_state_dict(state_dict["b"])
-            # Load optimizers
-            state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer.pt"))
+
+            # Load G2 Local Upsampler and Downsampler
+            last_model_name = get_model_list(checkpoint_dir, "G2_HD")
+            state_dict = torch.load(last_model_name)
+            self.gen.localUp.load_state_dict(state_dict["localUp"])
+            self.gen.localDown.load_state_dict(state_dict["localDown"])
+
+            # Load G2 optimizers
+            state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer_G2.pt"))
             self.dis_HD_opt.load_state_dict(state_dict["dis_HD"])
+            self.gen_HD_opt.load_state_dict(state_dict["gen_HD"])
             # Reinitilize schedulers
             self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt,hyperparameters,iterations_HD)
+            self.gen_HD_scheduler = get_scheduler(self.gen_HD_opt,hyperparameters,iterations_HD)
             return iterations, iterations_HD
         else:
             return iterations
@@ -1125,48 +1141,30 @@ class MUNIT_Trainer(nn.Module):
         gen_name = os.path.join(snapshot_dir, "gen_%08d.pt" % (iterations + 1))
         dis_name = os.path.join(snapshot_dir, "dis_%08d.pt" % (iterations + 1))
         dis_HD_name = os.path.join(snapshot_dir, "dis_HD_%08d.pt" % (iterations_HD + 1))
+        gen_HD_name = os.path.join(snapshot_dir, "G2_HD_%08d.pt" % (iterations_HD + 1))
         domain_classifier_name = os.path.join(
             snapshot_dir, "domain_classifier_%08d.pt" % (iterations + 1)
         )
         opt_name = os.path.join(snapshot_dir, "optimizer.pt")
-        if self.gen_state == 0:
-            torch.save(
-                {"a": self.gen_a.state_dict(), "b": self.gen_b.state_dict()}, gen_name
-            )
-        elif self.gen_state == 1:
-            torch.save({"2": self.gen.state_dict()}, gen_name)
-        else:
-            print("self.gen_state unknown value:", self.gen_state)
-        torch.save(
-                {"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_name
-            )
 
-        if self.domain_classif:
-            torch.save(
-                {"d": self.domain_classifier.state_dict()}, domain_classifier_name
-            )
-            torch.save(
-                {
-                    "gen": self.gen_opt.state_dict(),
-                    "dis": self.dis_opt.state_dict(),
-                    "dann": self.dann_opt.state_dict(),
-                },
-                opt_name,
-            )
-        elif self.is_HD:
+        if self.train_G2_only:
+            opt_name = os.path.join(snapshot_dir, "optimizer_G2.pt")
             torch.save(
                 {"a": self.dis_a_HD.state_dict(), "b": self.dis_b_HD.state_dict()}, dis_HD_name
             )
             torch.save(
-                {"gen": self.gen_opt.state_dict(), "dis": self.dis_opt.state_dict(),"dis_HD": self.dis_HD_opt.state_dict()},
+                {"localUp": self.gen.localUp.state_dict(), "localDown": self.gen.localDown.state_dict()}, gen_HD_name
+            )
+            torch.save(
+                {"gen_HD": self.gen_opt_HD.state_dict(), "dis_HD": self.dis_HD_opt.state_dict()},
                 opt_name,
             )
         else:
-            torch.save(
-                {"gen": self.gen_opt.state_dict(), "dis": self.dis_opt.state_dict()},
-                opt_name,
-            )
-        
+            if self.gen_state == 1:
+                torch.save({"2": self.gen.state_dict()}, gen_name)
+                torch.save({"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_name)
+            else:
+                print("self.gen_state unknown value:", self.gen_state)
 
 
 

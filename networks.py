@@ -391,7 +391,7 @@ class AdaINGen_double_HD(nn.Module):
 
     # AdaIN auto-encoder architecture
     def __init__(self, input_dim, params):
-        super(AdaINGen_double, self).__init__()
+        super(AdaINGen_double_HD, self).__init__()
         dim = params["dim"]
         style_dim = params["style_dim"]
         n_downsample = params["n_downsample"]
@@ -560,7 +560,7 @@ class LocalUpsampler(nn.Module):
         super(LocalUpsampler, self).__init__()
 
         ###### local enhancer layers #####          
-        ngf_global = ngf * (2**(n_local_enhancers-1))
+        ngf_global = ngf # * (2**(n_local_enhancers-1))
         ### residual blocks
         model_upsample = []
         for i in range(n_blocks_local):
@@ -580,7 +580,7 @@ class LocalDownsampler(nn.Module):
         super(LocalDownsampler, self).__init__()
         
         ### downsample            
-        ngf_global = ngf * (2**(n_local_enhancers-1))
+        ngf_global = ngf # * (2**(n_local_enhancers-1))
         model_downsample = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf_global, kernel_size=7, padding=0), 
                             nn.InstanceNorm2d(ngf_global), nn.ReLU(True),
                             nn.Conv2d(ngf_global, ngf_global * 2, kernel_size=3, stride=2, padding=1), 
