@@ -356,6 +356,7 @@ while train_G2:
 
         # Save network weights
         if (iteration_G2 + 1) % config["snapshot_save_iter"] == 0:
+            print('saved weights')
             trainer.save(checkpoint_directory, iteration_G2)
 
         iteration_G2 += 1
