@@ -272,7 +272,7 @@ train_loader_b_w_mask = get_data_loader_mask_and_im_HD(
     crop=True,
 )
 
-list_image_HD_a =[]
+list_image_HD_a = []
 list_image_HD_b = []
 list_image_a    = []
 list_image_b    = []

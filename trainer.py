@@ -441,7 +441,7 @@ class MUNIT_Trainer(nn.Module):
             comet_exp {[type]} -- [description] (default: {None})
             synth {bool} -- [description] (default: {False})
         """
-        self.gen_opt.zero_grad()
+        self.gen_opt_HD.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
 
