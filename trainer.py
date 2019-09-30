@@ -508,8 +508,8 @@ class MUNIT_Trainer(nn.Module):
 
         # total loss
         self.loss_gen_total = (
-            hyperparameters["gan_w"] * self.loss_gen_adv_a
-            + hyperparameters["gan_w"] * self.loss_gen_adv_b
+            hyperparameters["gan_w_HD"] * self.loss_gen_adv_a
+            + hyperparameters["gan_w_HD"] * self.loss_gen_adv_b
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_a
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_b
         )
