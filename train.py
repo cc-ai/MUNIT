@@ -42,6 +42,7 @@ parser.add_argument(
 )
 parser.add_argument("--output_path", type=str, default=".", help="outputs path")
 parser.add_argument("--ckpt_path", type=str, default=".", help="ckpt_path")
+parser.add_argument("--ckpt_path_HD", type=str, default=".", help="ckpt_path_HD")
 parser.add_argument("--resume", action="store_true")
 parser.add_argument("--trainer", type=str, default="MUNIT", help="MUNIT|UNIT")
 parser.add_argument("--git_hash", type=str, default="no-git-hash", help="output of git log --pretty=format:'%h' -n 1")
@@ -142,6 +143,8 @@ train_writer = tensorboardX.SummaryWriter(
 )
 output_directory = os.path.join(opts.output_path + "/outputs", model_name)
 checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
+
+print('Checkpoint directory :',checkpoint_directory) 
 
 shutil.copy(
     opts.config, os.path.join(output_directory, "config.yaml")
@@ -293,6 +296,12 @@ train_display_images_b = torch.stack(list_image_b).cuda()
 train_display_images_b_HD = torch.stack(list_image_HD_b).cuda()
 
 iteration_G2 = 0
+print("opts.ckpt_path_HD" , opts.ckpt_path_HD)
+if opts.ckpt_path_HD != ".":
+    iteration_G2 = (
+    trainer.resume(opts.ckpt_path_HD, hyperparameters=config, HD_ckpt=True) if opts.resume else 0
+)
+    
 while train_G2:
     for it, ((images_HD_a, mask_HD_a, images_a, mask_a), (images_HD_b, mask_HD_b, images_b, mask_b)) in enumerate(
         zip(train_loader_a_w_mask, train_loader_b_w_mask)
@@ -357,7 +366,11 @@ while train_G2:
         # Save network weights
         if (iteration_G2 + 1) % config["snapshot_save_iter"] == 0:
             print('saved weights')
-            trainer.save(checkpoint_directory, iteration_G2)
+            
+            trainer.save(checkpoint_directory, 
+                         iterations = iterations, 
+                         iterations_HD = iteration_G2,
+                         save_HD =True)
 
         iteration_G2 += 1
         if iteration_G2 >= max_iter:

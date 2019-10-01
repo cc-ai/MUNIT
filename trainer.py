@@ -811,8 +811,8 @@ class MUNIT_Trainer(nn.Module):
                 x_b_recon,embedding_x_b = self.gen.decode(c_b, s_b_prime, 2, return_content=True)
 
                 # Downsample
-                Downsampled_x_a = self.gen.localDown(x_a_HD)
-                Downsampled_x_b = self.gen.localDown(x_b_HD)
+                Downsampled_x_a = self.gen.localDown(x_a_HD[i].unsqueeze(0))
+                Downsampled_x_b = self.gen.localDown(x_b_HD[i].unsqueeze(0))
 
                 # Upsample
                 x_a_recon_HD.append(self.gen.localUp(embedding_x_a+Downsampled_x_a))
@@ -827,18 +827,23 @@ class MUNIT_Trainer(nn.Module):
                  
                 x_ab_.append(nn.Upsample(scale_factor=2, mode='nearest')(x_ab))
                 x_ba_.append(nn.Upsample(scale_factor=2, mode='nearest')(x_ba))
+                
                 # Upsample
                 x_ab_HD.append(self.gen.localUp(embedding_x_ab + Downsampled_x_a))
                 x_ba_HD.append(self.gen.localUp(embedding_x_ba + Downsampled_x_b))
 
         else:
             print("self.gen_state unknown value:", self.gen_state)
-
+            
+        self.train()
+        if self.semantic_w:
+            self.segmentation_model.eval()
+        
         x_a_recon_HD, x_b_recon_HD = torch.cat(x_a_recon_HD), torch.cat(x_b_recon_HD)
         x_ba_HD = torch.cat(x_ba_HD)
         x_ab_HD = torch.cat(x_ab_HD)
-        x_ab_ = torch.cat(x_ab_)
-        x_ba_ = torch.cat(x_ba_)
+        x_ab_   = torch.cat(x_ab_)
+        x_ba_   = torch.cat(x_ba_)
 
         
         return x_a_HD, x_a_recon_HD, x_ab_, x_ab_HD, x_b_HD, x_b_recon_HD, x_ba_, x_ba_HD
@@ -1076,46 +1081,47 @@ class MUNIT_Trainer(nn.Module):
         Returns:
             int -- number of iterations (used by the optimizer)
         """
-        # Load generators
-        last_model_name = get_model_list(checkpoint_dir, "gen")
-        state_dict = torch.load(last_model_name)
-        
-        # overwrite entries in the existing state dict
-        gen_dict = self.gen.state_dict()
-        
-        if self.gen_state == 1:
-            gen_dict.update(state_dict["2"]) 
-            self.gen.load_state_dict(gen_dict)
-        else:
-            print("self.gen_state unknown value:", self.gen_state)
-
-        # Load domain classifier
-        if self.domain_classif == 1:
-            last_model_name = get_model_list(checkpoint_dir, "domain_classif")
+        if not HD_ckpt:
+            # Load generators
+            last_model_name = get_model_list(checkpoint_dir, "gen")
             state_dict = torch.load(last_model_name)
-            self.domain_classifier.load_state_dict(state_dict["d"])
 
-        iterations = int(last_model_name[-11:-3])
-        # Load discriminators
-        last_model_name = get_model_list(checkpoint_dir, "dis")
-        state_dict = torch.load(last_model_name)
-        self.dis_a.load_state_dict(state_dict["a"])
-        self.dis_b.load_state_dict(state_dict["b"])
-        # Load optimizers
-        state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer.pt"))
-        self.dis_opt.load_state_dict(state_dict["dis"])
-        self.gen_opt.load_state_dict(state_dict["gen"])
+            # overwrite entries in the existing state dict
+            gen_dict = self.gen.state_dict()
 
-        if self.domain_classif == 1:
-            self.dann_opt.load_state_dict(state_dict["dann"])
-            self.dann_scheduler = get_scheduler(
-                self.dann_opt, hyperparameters, iterations
-            )
-        # Reinitilize schedulers
-        self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters, iterations)
-        self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
-        print("Resume from iteration %d" % iterations)
+            if self.gen_state == 1:
+                gen_dict.update(state_dict["2"]) 
+                self.gen.load_state_dict(gen_dict)
+            else:
+                print("self.gen_state unknown value:", self.gen_state)
 
+            # Load domain classifier
+            if self.domain_classif == 1:
+                last_model_name = get_model_list(checkpoint_dir, "domain_classif")
+                state_dict = torch.load(last_model_name)
+                self.domain_classifier.load_state_dict(state_dict["d"])
+
+            iterations = int(last_model_name[-11:-3])
+            # Load discriminators
+            last_model_name = get_model_list(checkpoint_dir, "dis")
+            state_dict = torch.load(last_model_name)
+            self.dis_a.load_state_dict(state_dict["a"])
+            self.dis_b.load_state_dict(state_dict["b"])
+            # Load optimizers
+            state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer.pt"))
+            self.dis_opt.load_state_dict(state_dict["dis"])
+            self.gen_opt.load_state_dict(state_dict["gen"])
+
+            if self.domain_classif == 1:
+                self.dann_opt.load_state_dict(state_dict["dann"])
+                self.dann_scheduler = get_scheduler(
+                    self.dann_opt, hyperparameters, iterations
+                )
+            # Reinitilize schedulers
+            self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters, iterations)
+            self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
+            print("Resume from iteration %d" % iterations)
+            return iterations
         # IS HD
         if self.train_G2_only and HD_ckpt:
             # Load discriminators HD
@@ -1138,11 +1144,12 @@ class MUNIT_Trainer(nn.Module):
             # Reinitilize schedulers
             self.dis_HD_scheduler = get_scheduler(self.dis_HD_opt,hyperparameters,iterations_HD)
             self.gen_HD_scheduler = get_scheduler(self.gen_opt_HD,hyperparameters,iterations_HD)
-            return iterations, iterations_HD
+            print("Resume from iterations_HD %d" % iterations_HD)
+            return iterations_HD
         else:
-            return iterations
+            print('This situation is not Handled:(loading both ckpt from the fine tuning_')
 
-    def save(self, snapshot_dir, iterations, iterations_HD=0):
+    def save(self, snapshot_dir, iterations, iterations_HD=0, save_HD=False):
         """
         Save generators, discriminators, and optimizers
         
@@ -1150,17 +1157,10 @@ class MUNIT_Trainer(nn.Module):
             snapshot_dir {string} -- directory path where to save the networks weights
             iterations {int} -- number of training iterations
         """
-        # Save generators, discriminators, and optimizers
-        gen_name = os.path.join(snapshot_dir, "gen_%08d.pt" % (iterations + 1))
-        dis_name = os.path.join(snapshot_dir, "dis_%08d.pt" % (iterations + 1))
-        dis_HD_name = os.path.join(snapshot_dir, "dis_HD_%08d.pt" % (iterations_HD + 1))
-        gen_HD_name = os.path.join(snapshot_dir, "G2_HD_%08d.pt" % (iterations_HD + 1))
-        domain_classifier_name = os.path.join(
-            snapshot_dir, "domain_classifier_%08d.pt" % (iterations + 1)
-        )
-        opt_name = os.path.join(snapshot_dir, "optimizer.pt")
-
-        if self.train_G2_only:
+        if self.train_G2_only or HD_only:
+            # Save generators, discriminators, and optimizers
+            gen_HD_name = os.path.join(snapshot_dir, "G2_HD_%08d.pt" % (iterations_HD + 1))
+            dis_HD_name = os.path.join(snapshot_dir, "dis_HD_%08d.pt" % (iterations_HD + 1))
             opt_name = os.path.join(snapshot_dir, "optimizer_G2.pt")
             torch.save(
                 {"a": self.dis_a_HD.state_dict(), "b": self.dis_b_HD.state_dict()}, dis_HD_name
@@ -1173,6 +1173,13 @@ class MUNIT_Trainer(nn.Module):
                 opt_name,
             )
         else:
+            # Save generators, discriminators, and optimizers
+            gen_name = os.path.join(snapshot_dir, "gen_%08d.pt" % (iterations + 1))
+            dis_name = os.path.join(snapshot_dir, "dis_%08d.pt" % (iterations + 1))
+            domain_classifier_name = os.path.join(
+                snapshot_dir, "domain_classifier_%08d.pt" % (iterations + 1)
+            )
+            opt_name = os.path.join(snapshot_dir, "optimizer.pt")
             if self.gen_state == 1:
                 torch.save({"2": self.gen.state_dict()}, gen_name)
                 torch.save({"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_name)
