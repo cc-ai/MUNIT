@@ -16,7 +16,6 @@ except ImportError:  # will be 3.x series
 # Discriminator
 ##################################################################################
 
-
 class MsImageDis(nn.Module):
     # Multi-scale discriminator architecture
     def __init__(self, input_dim, params):

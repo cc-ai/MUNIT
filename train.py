@@ -10,6 +10,7 @@ from utils import (
     write_html,
     write_loss,
     get_config,
+    get_scheduler,
     write_2images,
     Timer,
     get_synthetic_data_loader,
@@ -248,7 +249,7 @@ while train_G1:
             sys.exit("Finish training")
 
 # Instantiate dataloader for G2
-train_G2 = True
+train_G2 = False
 train_loader_a_w_mask = get_data_loader_mask_and_im_HD(
     config["data_list_train_a"],
     config["data_list_train_a_seg"],
@@ -325,30 +326,6 @@ while train_G2:
                 )
             torch.cuda.synchronize()
 
-            #             # Write images
-            #             if (iteration_G2 + 1) % config["image_save_iter"] == 0:
-            #                 with torch.no_grad():
-            #                     test_image_outputs = trainer.sample_HD(
-            #                         test_display_images_a, test_display_images_b
-            #                     )
-            #                     train_image_outputs = trainer.sample_HD(
-            #                         train_display_images_a, train_display_images_b
-            #                     )
-            #                 write_2images(
-            #                     test_image_outputs,
-            #                     display_size,
-            #                     image_directory,
-            #                     "test_%08d" % (iteration_G2 + 1),
-            #                     comet_exp,
-            #                 )
-            #                 write_2images(
-            #                     train_image_outputs,
-            #                     display_size,
-            #                     image_directory,
-            #                     "train_%08d" % (iteration_G2 + 1),
-            #                     comet_exp,
-            #                 )
-
         if (iteration_G2 + 1) % config["image_display_iter"] == 0:
             with torch.no_grad():
                 image_outputs = trainer.sample_HD(
@@ -376,6 +353,67 @@ while train_G2:
         if iteration_G2 >= max_iter:
             sys.exit("Finish training")
 
+
+train_global = True
+trainer.dis_scheduler = get_scheduler(trainer.dis_opt_global, config, iterations)
+trainer.gen_scheduler = get_scheduler(trainer.gen_opt_global, config, iterations)
+
+iteration_global = 0
+while train_global:
+    for it, ((images_HD_a, mask_HD_a, images_a, mask_a), (images_HD_b, mask_HD_b, images_b, mask_b)) in enumerate(
+        zip(train_loader_a_w_mask, train_loader_b_w_mask)
+    ):
+        trainer.update_learning_rate_global()
+        images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
+        mask_a, mask_b     = mask_a.cuda().detach(), mask_b.cuda().detach()
+
+        images_HD_a, images_HD_b = images_HD_a.cuda().detach(), images_HD_b.cuda().detach()
+        mask_HD_a, mask_HD_b     = mask_HD_a.cuda().detach(), mask_HD_b.cuda().detach()
+
+        with Timer("Elapsed time in update: %f"):
+            # Main training code
+            trainer.dis_global_update(images_a, images_HD_a, images_b, images_HD_b, config, comet_exp)
+            
+            # Continue the Dev here 
+            if (iteration_global + 1)% config["ratio_disc_gen_global"] == 0:
+                trainer.gen_global_update(
+                    images_a, images_HD_a, images_b, images_HD_b, 
+                    config, mask_a, mask_HD_a, mask_b, mask_HD_b, 
+                    comet_exp
+                )
+            torch.cuda.synchronize()
+            
+            if (iteration_global + 1) % config["image_display_iter"] == 0:
+                with torch.no_grad():
+                    image_outputs = trainer.sample_HD(
+                                        train_display_images_a, train_display_images_a_HD, 
+                                        train_display_images_b, train_display_images_b_HD
+                                    )
+                write_2images(
+                    image_outputs,
+                    display_size,
+                    image_directory,
+                    "train_current",
+                    comet_exp,
+                )
+
+        # Save network weights
+        if (iteration_global + 1) % config["snapshot_save_iter"] == 0:
+            print('saved weights')
+            
+            trainer.save(checkpoint_directory, 
+                         iterations = iteration_global, 
+                         iterations_HD = iteration_global,
+                         save_HD =False)
+            
+            trainer.save(checkpoint_directory, 
+                         iterations = iteration_global, 
+                         iterations_HD = iteration_global,
+                         save_HD =True)
+
+        iteration_global += 1
+        if iteration_global >= max_iter:
+            sys.exit("Finish training")
                                            
                                            
                                            
