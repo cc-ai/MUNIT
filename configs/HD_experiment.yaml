@@ -3,9 +3,9 @@
 
 # logger options
 image_save_iter: 10000000     # How often do you want to save output images during training
-image_display_iter: 500       # How often do you want to display output images during training
+image_display_iter: 10       # How often do you want to display output images during training
 display_size: 8               # How many images do you want to display each time
-snapshot_save_iter: 5000      # How often do you want to save trained models
+snapshot_save_iter: 15      # How often do you want to save trained models
 log_iter: 1                   # How often do you want to log the training stats
 
 # optimization options
@@ -30,6 +30,7 @@ ratio_disc_gen: 5             # ratio training discriminator vs generator 5 mean
 ## HD ##
 recon_x_w_HD: 10              # weight of image reconstruction loss hd
 train_G2_only: 1              # if set to 1 train G2 only
+gan_w_HD: 6                   # if set to 1 train G2 only
 
 semantic_w: 3                 # weight of semantic conservation loss
 recon_mask: 1                 # default 0 do not touch recon loss, 1 do not compute cycle consistency loss on masked region
