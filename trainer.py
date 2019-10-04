@@ -3,7 +3,7 @@ Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 from comet_ml import Experiment
-from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen,LocalUpsampler,AdaINGen_double_HD
+from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen,LocalUpsampler,AdaINGen_double_HD,MsImageDisExtended
 from utils import (
     weights_init,
     get_model_list,
@@ -60,7 +60,11 @@ class MUNIT_Trainer(nn.Module):
         self.dis_b = MsImageDis(
             hyperparameters["input_dim_b"], hyperparameters["dis"]
         )  # discriminator for domain b
-         
+        self.dis_a_global = MsImageDisExtended(
+            hyperparameters["input_dim_a"], hyperparameters["dis"]
+        ) # Discriminator with one more scale 
+        
+        
         self.instancenorm = nn.InstanceNorm2d(512, affine=False)
         self.style_dim = hyperparameters["gen"]["style_dim"]
 
