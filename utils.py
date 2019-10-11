@@ -687,7 +687,7 @@ def get_config(config):
         dict -- parsed yaml file
     """
     with open(config, "r") as stream:
-        return yaml.load(stream)
+        return yaml.safe_load(stream)
 
 
 def eformat(f, prec):
