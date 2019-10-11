@@ -936,7 +936,11 @@ def get_model_list(dirname, key):
     return last_model_name
 
 
-# def load_vgg16(model_dir):
+def load_vgg16(model_dir):
+    raise NotImplementedError(
+        "This function relies on torch.utils.serialization.load_lua which is deprecated"
+    )
+
 #     """Load vgg16 model
 #     from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py
     
