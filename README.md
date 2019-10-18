@@ -1,7 +1,6 @@
 # VICC MUNIT
 
-This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT) for the needs of the [VICC project](https://github.com/cc-ai/kdb).
-
+This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT) for the needs of the [VICC project](https://github.com/cc-ai/kdb). 
 
 ## Requirements
 ```
@@ -146,3 +145,8 @@ python test.py --configs/config.yaml --checkpoint model_name/checkpoints/gen_002
 ### Experiments run
 
 https://docs.google.com/spreadsheets/d/1Csdi2B-LJPChLwO1ng4i2sjPgQxrNRlempa05o3a7og/edit?usp=sharing
+
+
+## Branches
+Master is the main branch, code that is meant to be deployed on the https://climatechangeai.org
+feature/cocoStuff_merged_logits is a branch where we merged several classes of cocostuff so that we have a semantic segmentation consistency that is able to detect water properly. See utils.py and the assignment_dir function. 
