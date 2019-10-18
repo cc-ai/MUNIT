@@ -54,16 +54,13 @@ class MUNIT_Trainer(nn.Module):
         else:
             print("self.gen_state unknown value: or not HD", self.gen_state)
 
-        self.dis_a = MsImageDis(
+        self.dis_a = MsImageDisExtended(
             hyperparameters["input_dim_a"], hyperparameters["dis"]
         )  # discriminator for domain a
-        self.dis_b = MsImageDis(
+        
+        self.dis_b = MsImageDisExtended(
             hyperparameters["input_dim_b"], hyperparameters["dis"]
         )  # discriminator for domain b
-        self.dis_a_global = MsImageDisExtended(
-            hyperparameters["input_dim_a"], hyperparameters["dis"]
-        ) # Discriminator with one more scale 
-        
         
         self.instancenorm = nn.InstanceNorm2d(512, affine=False)
         self.style_dim = hyperparameters["gen"]["style_dim"]
@@ -76,7 +73,9 @@ class MUNIT_Trainer(nn.Module):
         # Setup the optimizers
         beta1 = hyperparameters["beta1"]
         beta2 = hyperparameters["beta2"]
-        dis_params = list(self.dis_a.parameters()) + list(self.dis_b.parameters())
+        
+        dis_HD_params = list(self.dis_a.cnns[0].parameters()) + \
+                        list(self.dis_b.cnns[0].parameters())
 
         if self.gen_state == 1:
             G1_param =  list(self.gen.enc_style.parameters())    + \
@@ -94,36 +93,38 @@ class MUNIT_Trainer(nn.Module):
         self.dis_a.apply(weights_init("gaussian"))
         self.dis_b.apply(weights_init("gaussian"))
 
-        if not self.train_global:
-            self.dis_opt = torch.optim.Adam(
-                [p for p in dis_params if p.requires_grad],
-                lr=lr,
-                betas=(beta1, beta2),
-                weight_decay=hyperparameters["weight_decay"],
-            )
-            self.gen_opt = torch.optim.Adam(
-                [p for p in G1_param if p.requires_grad],
-                lr=lr,
-                betas=(beta1, beta2),
-                weight_decay=hyperparameters["weight_decay"],
-            )
-            self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters)
-            self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters)
+        #         if not self.train_global:
+        #             self.dis_opt = torch.optim.Adam(
+        #                 [p for p in dis_params if p.requires_grad],
+        #                 lr=lr,
+        #                 betas=(beta1, beta2),
+        #                 weight_decay=hyperparameters["weight_decay"],
+        #             )
+        #             self.gen_opt = torch.optim.Adam(
+        #                 [p for p in G1_param if p.requires_grad],
+        #                 lr=lr,
+        #                 betas=(beta1, beta2),
+        #                 weight_decay=hyperparameters["weight_decay"],
+        #             )
+        #             self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters)
+        #             self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters)
         
         # Load HD Discriminator if needed
         if self.train_global or self.train_G2_only:
             # Define parameter of the local upsampler and local downsampler
             G2_params = list(self.gen.localUp.parameters()) +  list(self.gen.localDown.parameters())
             
-            # HD DISCRIMINATOR 
-            self.dis_a_HD = MsImageDis(hyperparameters["input_dim_a"], hyperparameters["dis"])  
-            self.dis_b_HD = MsImageDis(hyperparameters["input_dim_b"], hyperparameters["dis"])
-            # List parameters
-            dis_HD_params = list(self.dis_a_HD.parameters()) + list(self.dis_b_HD.parameters())
+            #             # HD DISCRIMINATOR 
+            #             self.dis_a_HD = MsImageDis(hyperparameters["input_dim_a"], hyperparameters["dis"])  
+            #             self.dis_b_HD = MsImageDis(hyperparameters["input_dim_b"], hyperparameters["dis"])
 
-            # Network weight initialization
-            self.dis_a_HD.apply(weights_init("gaussian"))
-            self.dis_b_HD.apply(weights_init("gaussian"))
+            #             # List parameters
+            #             dis_HD_params = list(self.dis_a_HD.parameters()) + list(self.dis_b_HD.parameters())
+
+            #             # Network weight initialization
+            #             self.dis_a_HD.apply(weights_init("gaussian"))
+            #             self.dis_b_HD.apply(weights_init("gaussian"))
+            
             if not self.train_global:
                 # Optimizers
                 self.gen_opt_HD = torch.optim.Adam(
@@ -147,7 +148,7 @@ class MUNIT_Trainer(nn.Module):
                 G_global_param = G1_param + G2_params
                 
                 # Define the list of discriminator parameters
-                D_global_param = dis_params + dis_HD_params
+                D_global_param = dis_HD_params # + dis_HD_params
                 
                 # Global optimizer for the generators
                 self.gen_opt_global = torch.optim.Adam(
@@ -159,7 +160,7 @@ class MUNIT_Trainer(nn.Module):
                 
                 # Global optimizer for the discriminators
                 self.dis_opt_global = torch.optim.Adam(
-                    [p for p in G_global_param if p.requires_grad],
+                    [p for p in D_global_param if p.requires_grad],
                     lr=lr,
                     betas=(beta1, beta2),
                     weight_decay=hyperparameters["weight_decay"],
@@ -458,7 +459,7 @@ class MUNIT_Trainer(nn.Module):
 
 
     def gen_HD_update(
-        self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp=None, synth=False
+        self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp=None, synth=False, warmup = False
     ):
         """Update HD generator (Upsampler & Downsampler)
         
@@ -527,15 +528,24 @@ class MUNIT_Trainer(nn.Module):
             # )
         else:
             print("self.gen_state unknown value:", self.gen_state)
-
-        # reconstruction loss
-        self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon_HD, x_a_HD)
-        self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon_HD, x_b_HD)
         
-
+        # Warm-up reconstruction loss
+        if warmup:
+            m_up_2 = nn.UpsamplingNearest2d(scale_factor=2)
+            self.loss_gen_recon_x_a = 0 
+            self.loss_gen_recon_x_b = 0
+            self.loss_gen_recon_x_ab = self.recon_criterion(x_ab_HD, m_up_2(x_ab))
+            self.loss_gen_recon_x_ba = self.recon_criterion(x_ba_HD, m_up_2(x_ba))
+        else:
+            self.loss_gen_recon_x_ba = 0
+            self.loss_gen_recon_x_ab = 0
+            # reconstruction loss
+            self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon_HD, x_a_HD)
+            self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon_HD, x_b_HD)
+            
         # GAN loss
-        self.loss_gen_adv_a = self.dis_a_HD.calc_gen_loss(x_ba_HD)
-        self.loss_gen_adv_b = self.dis_b_HD.calc_gen_loss(x_ab_HD)
+        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba_HD, first_layer = True)
+        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab_HD, first_layer = True)
 
         # # # semantic-segmentation loss
         # self.loss_sem_seg = (
@@ -547,10 +557,12 @@ class MUNIT_Trainer(nn.Module):
 
         # total loss
         self.loss_gen_total = (
-            hyperparameters["gan_w_HD"] * self.loss_gen_adv_a
+            hyperparameters["gan_w_HD"]   * self.loss_gen_adv_a
             + hyperparameters["gan_w_HD"] * self.loss_gen_adv_b
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_a
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_b
+            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_ab 
+            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_ba
         )
         #            + hyperparameters["semantic_w"] * self.loss_sem_seg
 
@@ -560,6 +572,9 @@ class MUNIT_Trainer(nn.Module):
             comet_exp.log_metric("loss_gen_recon_x_a_HD", self.loss_gen_recon_x_a)
             comet_exp.log_metric("loss_gen_recon_x_b_HD", self.loss_gen_recon_x_b)
             comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
+            if warmup:
+                comet_exp.log_metric("loss_gen_recon_x_ab", self.loss_gen_recon_x_ab)
+                comet_exp.log_metric("loss_gen_recon_x_ba", self.loss_gen_recon_x_ba)
 
         self.loss_gen_total.backward()
         self.gen_opt_HD.step()
@@ -599,142 +614,141 @@ class MUNIT_Trainer(nn.Module):
             x_ab_HD = self.gen.localUp(embedding_x_ab+Downsampled_x_a)
             x_ba_HD = self.gen.localUp(embedding_x_ba+Downsampled_x_b)
 
-            #             # encode again
-            #             c_b_recon, s_a_recon = self.gen.encode(x_ba, 1)
-            #             c_a_recon, s_b_recon = self.gen.encode(x_ab, 2)
-            #             # decode again (if needed)
-            #             x_aba = (
-            #                 self.gen.decode(c_a_recon, s_a_prime, 1)
-            #                 if hyperparameters["recon_x_cyc_w"] > 0
-            #                 else None
-            #             )
-            #             x_bab = (
-            #                 self.gen.decode(c_b_recon, s_b_prime, 2)
-            #                 if hyperparameters["recon_x_cyc_w"] > 0
-            #                 else None
-            #             )
+            # encode again
+            c_b_recon, s_a_recon = self.gen.encode(x_ba, 1)
+            c_a_recon, s_b_recon = self.gen.encode(x_ab, 2)
+            # decode again (if needed)
+            x_aba = (
+                self.gen.decode(c_a_recon, s_a_prime, 1)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else None
+            )
+            x_bab = (
+                self.gen.decode(c_b_recon, s_b_prime, 2)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else None
+            )
         else:
             print("self.gen_state unknown value:", self.gen_state)
         
-        #         # reconstruction loss
-        #         self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
-        #         self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon, x_b)
-        #         self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a)
-        #         self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
-        #         self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
-        #         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
+        # reconstruction loss
+        self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
+        self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon, x_b)
+        self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a)
+        self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
+        self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
+        self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
 
-        #         # Synthetic reconstruction loss
-        #         self.loss_gen_recon_synth = self.recon_criterion_mask(x_ab, x_b,mask_b) +\
-        #                                     self.recon_criterion_mask(x_ba, x_a,mask_a)  if synth else 0
+        # Synthetic reconstruction loss
+        self.loss_gen_recon_synth = self.recon_criterion_mask(x_ab, x_b,mask_b) +\
+                                    self.recon_criterion_mask(x_ba, x_a,mask_a)  if synth else 0
 
-        #         if self.recon_mask:
-        #             self.loss_gen_cycrecon_x_a = (
-        #                 self.recon_criterion_mask(x_aba, x_a, mask_a)
-        #                 if hyperparameters["recon_x_cyc_w"] > 0
-        #                 else 0
-        #             )
-        #             self.loss_gen_cycrecon_x_b = (
-        #                 self.recon_criterion_mask(x_bab, x_b, mask_b)
-        #                 if hyperparameters["recon_x_cyc_w"] > 0
-        #                 else 0
-        #             )
-        #         else:
-        #             self.loss_gen_cycrecon_x_a = (
-        #                 self.recon_criterion(x_aba, x_a)
-        #                 if hyperparameters["recon_x_cyc_w"] > 0
-        #                 else 0
-        #             )
-        #             self.loss_gen_cycrecon_x_b = (
-        #                 self.recon_criterion(x_bab, x_b)
-        #                 if hyperparameters["recon_x_cyc_w"] > 0
-        #                 else 0
-        #             )
+        if self.recon_mask:
+            self.loss_gen_cycrecon_x_a = (
+                self.recon_criterion_mask(x_aba, x_a, mask_a)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
+            self.loss_gen_cycrecon_x_b = (
+                self.recon_criterion_mask(x_bab, x_b, mask_b)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
+        else:
+            self.loss_gen_cycrecon_x_a = (
+                self.recon_criterion(x_aba, x_a)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
+            self.loss_gen_cycrecon_x_b = (
+                self.recon_criterion(x_bab, x_b)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
 
-        #         # GAN loss
-        #         self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba)
-        #         self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab)
+        # GAN loss
+        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ba))
+        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ab))
+        
+        # GAN loss HD
+        self.loss_gen_adv_a_HD = self.dis_a.calc_gen_loss(x_ba_HD)
+        self.loss_gen_adv_b_HD = self.dis_b.calc_gen_loss(x_ab_HD)
+        
+        # domain-invariant perceptual loss
+        self.loss_gen_vgg_a = (
+            self.compute_vgg_loss(self.vgg, x_ba, x_b)
+            if hyperparameters["vgg_w"] > 0
+            else 0
+        )
+        self.loss_gen_vgg_b = (
+            self.compute_vgg_loss(self.vgg, x_ab, x_a)
+            if hyperparameters["vgg_w"] > 0
+            else 0
+        )
 
-        #         # domain-invariant perceptual loss
-        #         self.loss_gen_vgg_a = (
-        #             self.compute_vgg_loss(self.vgg, x_ba, x_b)
-        #             if hyperparameters["vgg_w"] > 0
-        #             else 0
-        #         )
-        #         self.loss_gen_vgg_b = (
-        #             self.compute_vgg_loss(self.vgg, x_ab, x_a)
-        #             if hyperparameters["vgg_w"] > 0
-        #             else 0
-        #         )
-
-        #         # semantic-segmentation loss
-        #         self.loss_sem_seg = (
-        #             self.compute_semantic_seg_loss(x_a.squeeze(), x_ab.squeeze(), mask_a)
-        #             + self.compute_semantic_seg_loss(x_b.squeeze(), x_ba.squeeze(), mask_b)
-        #             if hyperparameters["semantic_w"] > 0
-        #             else 0
-        #         )
-        #         # Domain adversarial loss (c_a and c_b are swapped because we want the feature to be less informative
-        #         # minmax (accuracy but max min loss)
-        #         self.domain_adv_loss = (
-        #             self.compute_domain_adv_loss(c_a,c_b, compute_accuracy=False, minimize=False)
-        #             if hyperparameters["domain_adv_w"] > 0
-        #             else 0
-        #         )
+        # semantic-segmentation loss
+        self.loss_sem_seg = (
+            self.compute_semantic_seg_loss(x_a.squeeze(), x_ab.squeeze(), mask_a)
+            + self.compute_semantic_seg_loss(x_b.squeeze(), x_ba.squeeze(), mask_b)
+            if hyperparameters["semantic_w"] > 0
+            else 0
+        )
+        # Domain adversarial loss (c_a and c_b are swapped because we want the feature to be less informative
+        # minmax (accuracy but max min loss)
+        self.domain_adv_loss = (
+            self.compute_domain_adv_loss(c_a,c_b, compute_accuracy=False, minimize=False)
+            if hyperparameters["domain_adv_w"] > 0
+            else 0
+        )
         
         # reconstruction loss HD
         self.loss_gen_recon_x_a_HD = self.recon_criterion(x_a_recon_HD, x_a_HD)
         self.loss_gen_recon_x_b_HD = self.recon_criterion(x_b_recon_HD, x_b_HD)
 
-        # GAN loss HD
-        self.loss_gen_adv_a_HD = self.dis_a_HD.calc_gen_loss(x_ba_HD)
-        self.loss_gen_adv_b_HD = self.dis_b_HD.calc_gen_loss(x_ab_HD)
-        
         # total loss
         self.loss_gen_total = (
-            #             hyperparameters["gan_w"] * self.loss_gen_adv_a
-            #             + hyperparameters["gan_w"] * self.loss_gen_adv_b
-            #             + hyperparameters["recon_x_w"] * self.loss_gen_recon_x_a
-            #             + hyperparameters["recon_s_w"] * self.loss_gen_recon_s_a
-            #             + hyperparameters["recon_c_w"] * self.loss_gen_recon_c_a
-            #             + hyperparameters["recon_x_w"] * self.loss_gen_recon_x_b
-            #             + hyperparameters["recon_s_w"] * self.loss_gen_recon_s_b
-            #             + hyperparameters["recon_c_w"] * self.loss_gen_recon_c_b
-            #             + hyperparameters["recon_x_cyc_w"] * self.loss_gen_cycrecon_x_a
-            #             + hyperparameters["recon_x_cyc_w"] * self.loss_gen_cycrecon_x_b
-            #             + hyperparameters["vgg_w"] * self.loss_gen_vgg_a
-            #             + hyperparameters["vgg_w"] * self.loss_gen_vgg_b
-            #             + hyperparameters["semantic_w"] * self.loss_sem_seg
-            #             + hyperparameters["domain_adv_w"] * self.domain_adv_loss
-            #             + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
-            hyperparameters["gan_w_HD"] * self.loss_gen_adv_a_HD
+            hyperparameters["gan_w"] * self.loss_gen_adv_a
+            + hyperparameters["gan_w"] * self.loss_gen_adv_b
+            + hyperparameters["recon_x_w"] * self.loss_gen_recon_x_a
+            + hyperparameters["recon_s_w"] * self.loss_gen_recon_s_a
+            + hyperparameters["recon_c_w"] * self.loss_gen_recon_c_a
+            + hyperparameters["recon_x_w"] * self.loss_gen_recon_x_b
+            + hyperparameters["recon_s_w"] * self.loss_gen_recon_s_b
+            + hyperparameters["recon_c_w"] * self.loss_gen_recon_c_b
+            + hyperparameters["recon_x_cyc_w"] * self.loss_gen_cycrecon_x_a
+            + hyperparameters["recon_x_cyc_w"] * self.loss_gen_cycrecon_x_b
+            + hyperparameters["vgg_w"] * self.loss_gen_vgg_a
+            + hyperparameters["vgg_w"] * self.loss_gen_vgg_b
+            + hyperparameters["semantic_w"] * self.loss_sem_seg
+            + hyperparameters["domain_adv_w"] * self.domain_adv_loss
+            + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
+            + hyperparameters["gan_w_HD"] * self.loss_gen_adv_a_HD
             + hyperparameters["gan_w_HD"] * self.loss_gen_adv_b_HD
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_a_HD
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_b_HD
         )
-        #            + hyperparameters["semantic_w"] * self.loss_sem_seg
 
         if comet_exp is not None:
-            #             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a)
-            #             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b)
-            #             comet_exp.log_metric("loss_gen_recon_x_a", self.loss_gen_recon_x_a)
-            #             comet_exp.log_metric("loss_gen_recon_s_a", self.loss_gen_recon_s_a)
-            #             comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a)
-            #             comet_exp.log_metric("loss_gen_recon_x_b", self.loss_gen_recon_x_b)
-            #             comet_exp.log_metric("loss_gen_recon_s_b", self.loss_gen_recon_s_b)
-            #             comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b)
-            #             comet_exp.log_metric("loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a)
-            #             comet_exp.log_metric("loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b)
-            #             comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
-            #             if hyperparameters["vgg_w"] > 0:
-            #                 comet_exp.log_metric("loss_gen_vgg_a", self.loss_gen_vgg_a)
-            #                 comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b)
-            #             if hyperparameters["semantic_w"] > 0:
-            #                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
-            #             if hyperparameters["domain_adv_w"] > 0:
-            #                 comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
-            #             if synth:
-            #                 comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth)
+            comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a)
+            comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b)
+            comet_exp.log_metric("loss_gen_recon_x_a", self.loss_gen_recon_x_a)
+            comet_exp.log_metric("loss_gen_recon_s_a", self.loss_gen_recon_s_a)
+            comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a)
+            comet_exp.log_metric("loss_gen_recon_x_b", self.loss_gen_recon_x_b)
+            comet_exp.log_metric("loss_gen_recon_s_b", self.loss_gen_recon_s_b)
+            comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b)
+            comet_exp.log_metric("loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a)
+            comet_exp.log_metric("loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b)
+            comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
+            if hyperparameters["vgg_w"] > 0:
+                comet_exp.log_metric("loss_gen_vgg_a", self.loss_gen_vgg_a)
+                comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b)
+            if hyperparameters["semantic_w"] > 0:
+                comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
+            if hyperparameters["domain_adv_w"] > 0:
+                comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
+            if synth:
+                comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth)
             comet_exp.log_metric("loss_gen_adv_a_HD", self.loss_gen_adv_a_HD)
             comet_exp.log_metric("loss_gen_adv_b_HD", self.loss_gen_adv_b_HD)
             comet_exp.log_metric("loss_gen_recon_x_a_HD", self.loss_gen_recon_x_a_HD)
@@ -1220,8 +1234,8 @@ class MUNIT_Trainer(nn.Module):
         upsampled_xba = self.gen.localUp(embedding_xba+Downsampled_x_b)
         
         # Dis_HD loss
-        self.loss_dis_HD_a = self.dis_a_HD.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
-        self.loss_dis_HD_b = self.dis_b_HD.calc_dis_loss(upsampled_xab.detach(),x_b_HD) #x_ab.detach(), x_b)
+        self.loss_dis_HD_a = self.dis_a.calc_dis_loss(upsampled_xba.detach(),x_a_HD, first_layer = True) #x_ba.detach(), x_a)
+        self.loss_dis_HD_b = self.dis_b.calc_dis_loss(upsampled_xab.detach(),x_b_HD, first_layer = True) #x_ab.detach(), x_b)
 
         if comet_exp is not None:
             comet_exp.log_metric("loss_dis_HD_b", self.loss_dis_HD_b)
@@ -1264,24 +1278,26 @@ class MUNIT_Trainer(nn.Module):
         upsampled_xba = self.gen.localUp(embedding_xba+Downsampled_x_b)
         
         # Dis_HD loss
-        self.loss_dis_HD_a = self.dis_a_HD.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
-        self.loss_dis_HD_b = self.dis_b_HD.calc_dis_loss(upsampled_xab.detach(),x_b_HD) #x_ab.detach(), x_b)
+        self.loss_dis_HD_a = self.dis_a.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
+        self.loss_dis_HD_b = self.dis_b.calc_dis_loss(upsampled_xab.detach(),x_b_HD) #x_ab.detach(), x_b)
 
-        #         # D loss
-        #         self.loss_dis_a = self.dis_a.calc_dis_loss(x_ba.detach(), x_a)
-        #         self.loss_dis_b = self.dis_b.calc_dis_loss(x_ab.detach(), x_b)
+        # D loss
+        self.loss_dis_a = self.dis_a.calc_dis_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ba).detach(), \
+                                                   nn.Upsample(scale_factor=2, mode='nearest')(x_a))
+        self.loss_dis_b = self.dis_b.calc_dis_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ab).detach(), \
+                                                   nn.Upsample(scale_factor=2, mode='nearest')(x_b))
         
         if comet_exp is not None:
             
-            #             comet_exp.log_metric("loss_dis_b", self.loss_dis_b)
-            #             comet_exp.log_metric("loss_dis_a", self.loss_dis_a)
+            comet_exp.log_metric("loss_dis_b", self.loss_dis_b)
+            comet_exp.log_metric("loss_dis_a", self.loss_dis_a)
             comet_exp.log_metric("loss_dis_HD_b", self.loss_dis_HD_b)
             comet_exp.log_metric("loss_dis_HD_a", self.loss_dis_HD_a)
 
         self.loss_dis_total = (
-            #             hyperparameters["gan_w"] * self.loss_dis_a
-            #             + hyperparameters["gan_w"] * self.loss_dis_b
-            hyperparameters["gan_w_HD"] * self.loss_dis_HD_a
+            hyperparameters["gan_w"] * self.loss_dis_a
+            + hyperparameters["gan_w"] * self.loss_dis_b
+            + hyperparameters["gan_w_HD"] * self.loss_dis_HD_a
             + hyperparameters["gan_w_HD"] * self.loss_dis_HD_b
         )
         self.loss_dis_total.backward()
@@ -1383,32 +1399,94 @@ class MUNIT_Trainer(nn.Module):
             # Load discriminators
             last_model_name = get_model_list(checkpoint_dir, "dis")
             state_dict = torch.load(last_model_name)
-            self.dis_a.load_state_dict(state_dict["a"])
-            self.dis_b.load_state_dict(state_dict["b"])
-            # Load optimizers
-            if not self.train_global:
-                state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer.pt"))
-                self.dis_opt.load_state_dict(state_dict["dis"])
-                self.gen_opt.load_state_dict(state_dict["gen"])
+            
+            #########################################################################
+            #         Load discriminator weights into HD discriminator
+            #########################################################################
+            
+            # state_dict a
+            state_dict_ = state_dict['a']
+            
+            # store state_dict keys
+            keys = []
+            for key in state_dict_:
+                keys.append(key)
 
-                if self.domain_classif == 1:
-                    self.dann_opt.load_state_dict(state_dict["dann"])
-                    self.dann_scheduler = get_scheduler(
-                        self.dann_opt, hyperparameters, iterations
-                    )
-                # Reinitilize schedulers
-                self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters, iterations)
-                self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
-            print("Resume from iteration %d" % iterations)
-            return iterations
+            # Iterate through the keys and replace them with their new name in the extanded architecture
+            for key in keys:
+                split_list = key.split('.')
+                n_layer = int(split_list[1]) 
+                split_list[1] = str(n_layer + 1)
+                new_key = ".".join(split_list)
+                state_dict_[new_key] = state_dict_[key]
+                if n_layer == 0:
+                    del state_dict_[key]
+
+            # state_dict a
+            pretrained_dict = state_dict_
+            # Define the weight of the global discriminator
+            model_dict      = self.dis_a.state_dict()
+            # Overwrite entries in the global discriminator state dict
+            model_dict.update(pretrained_dict) 
+            # Load the new state dict in the network
+            self.dis_a.load_state_dict(model_dict)
+  
+            # state_dict b
+            state_dict_ = state_dict['b']
+            
+            # store state_dict keys
+            keys = []
+            for key in state_dict_:
+                keys.append(key)
+
+            # Iterate through the keys and replace them with their new name in the extanded architecture
+            for key in keys:
+                split_list = key.split('.')
+                n_layer = int(split_list[1]) 
+                split_list[1] = str(n_layer + 1)
+                new_key = ".".join(split_list)
+                state_dict_[new_key] = state_dict_[key]
+                if n_layer == 0:
+                    del state_dict_[key]
+
+            # state_dict b
+            pretrained_dict = state_dict_
+            # Define the weight of the global discriminator
+            model_dict      = self.dis_b.state_dict()
+            # Overwrite entries in the global discriminator state dict
+            model_dict.update(pretrained_dict) 
+            # Load the new state dict in the network
+            self.dis_b.load_state_dict(model_dict)
+            
+            #########################################################################
+            #         Load discriminator weights into HD discriminator
+            #########################################################################
+            
+            #             self.dis_a.load_state_dict(state_dict["a"])
+            #             self.dis_b.load_state_dict(state_dict["b"])
+            # Load optimizers
+            # if not self.train_global:
+            #                 state_dict = torch.load(os.path.join(checkpoint_dir, "optimizer.pt"))
+            #                 self.dis_opt.load_state_dict(state_dict["dis"])
+            #                 self.gen_opt.load_state_dict(state_dict["gen"])
+            #                 if self.domain_classif == 1:
+            #                     self.dann_opt.load_state_dict(state_dict["dann"])
+            #                     self.dann_scheduler = get_scheduler(
+            #                         self.dann_opt, hyperparameters, iterations
+            #                     )
+            #                 # Reinitilize schedulers
+            #                 self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters, iterations)
+            #                 self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
+            print("Resume from iteration %d" % iterations, " without reinit schedulers")
+            return 0
         # IS HD
         if HD_ckpt:
             # Load discriminators HD
             last_model_name = get_model_list(checkpoint_dir, "dis_HD")
             iterations_HD = int(last_model_name[-11:-3])
             state_dict = torch.load(last_model_name)
-            self.dis_a_HD.load_state_dict(state_dict["a"])
-            self.dis_b_HD.load_state_dict(state_dict["b"])
+            self.dis_a.load_state_dict(state_dict["a"])
+            self.dis_b.load_state_dict(state_dict["b"])
 
             # Load G2 Local Upsampler and Downsampler
             last_model_name = get_model_list(checkpoint_dir, "G2_HD")
@@ -1443,7 +1521,7 @@ class MUNIT_Trainer(nn.Module):
             
             # Save discriminators and generator HD ckpt
             torch.save(
-                {"a": self.dis_a_HD.state_dict(), "b": self.dis_b_HD.state_dict()}, dis_HD_name
+                {"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_HD_name
             )
             torch.save(
                 {"localUp": self.gen.localUp.state_dict(), "localDown": self.gen.localDown.state_dict()}, gen_HD_name
@@ -1467,13 +1545,13 @@ class MUNIT_Trainer(nn.Module):
             )
 
         else:
-            if self.train_G2_only or save_HD:
+            if self.train_G2_only:
                 # Save generators, discriminators, and optimizers
                 gen_HD_name = os.path.join(snapshot_dir, "G2_HD_%08d.pt" % (iterations_HD + 1))
                 dis_HD_name = os.path.join(snapshot_dir, "dis_HD_%08d.pt" % (iterations_HD + 1))
                 opt_name = os.path.join(snapshot_dir, "optimizer_G2.pt")
                 torch.save(
-                    {"a": self.dis_a_HD.state_dict(), "b": self.dis_b_HD.state_dict()}, dis_HD_name
+                    {"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_HD_name
                 )
                 torch.save(
                     {"localUp": self.gen.localUp.state_dict(), "localDown": self.gen.localDown.state_dict()}, gen_HD_name
@@ -1482,19 +1560,19 @@ class MUNIT_Trainer(nn.Module):
                     {"gen_HD": self.gen_opt_HD.state_dict(), "dis_HD": self.dis_HD_opt.state_dict()},
                     opt_name,
                 )            
-            else :
-                # Save generators, discriminators, and optimizers
-                gen_name = os.path.join(snapshot_dir, "gen_%08d.pt" % (iterations + 1))
-                dis_name = os.path.join(snapshot_dir, "dis_%08d.pt" % (iterations + 1))
-                domain_classifier_name = os.path.join(
-                    snapshot_dir, "domain_classifier_%08d.pt" % (iterations + 1)
-                )
-                opt_name = os.path.join(snapshot_dir, "optimizer.pt")
-                if self.gen_state == 1:
-                    torch.save({"2": self.gen.state_dict()}, gen_name)
-                    torch.save({"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_name)
-                else:
-                    print("self.gen_state unknown value:", self.gen_state)
+                #             else :
+                #                 # Save generators, discriminators, and optimizers
+                #                 gen_name = os.path.join(snapshot_dir, "gen_%08d.pt" % (iterations + 1))
+                #                 dis_name = os.path.join(snapshot_dir, "dis_%08d.pt" % (iterations + 1))
+                #                 domain_classifier_name = os.path.join(
+                #                     snapshot_dir, "domain_classifier_%08d.pt" % (iterations + 1)
+                #                 )
+                #                 opt_name = os.path.join(snapshot_dir, "optimizer.pt")
+                #                 if self.gen_state == 1:
+                #                     torch.save({"2": self.gen.state_dict()}, gen_name)
+                #                     torch.save({"a": self.dis_a.state_dict(), "b": self.dis_b.state_dict()}, dis_name)
+                #                 else:
+                #                     print("self.gen_state unknown value:", self.gen_state)
 
 
 

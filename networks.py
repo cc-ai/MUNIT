@@ -112,6 +112,7 @@ class MsImageDis(nn.Module):
 
 class MsImageDisExtended(nn.Module):
     # Multi-scale discriminator architecture
+    # The extension is hardcoded in num_scales
     def __init__(self, input_dim, params):
         super(MsImageDisExtended, self).__init__()
         self.n_layer = params["n_layer"]
@@ -169,7 +170,7 @@ class MsImageDisExtended(nn.Module):
             x = self.downsample(x)
         return outputs
 
-    def calc_dis_loss(self, input_fake, input_real):
+    def calc_dis_loss(self, input_fake, input_real, first_layer = False):
         # calculate the loss to train D
         outs0 = self.forward(input_fake)
         outs1 = self.forward(input_real)
@@ -187,9 +188,12 @@ class MsImageDisExtended(nn.Module):
                 )
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
+                
+            if first_layer:
+                return loss
         return loss
 
-    def calc_gen_loss(self, input_fake):
+    def calc_gen_loss(self, input_fake, first_layer = False):
         # calculate the loss to train G
         outs0 = self.forward(input_fake)
         loss = 0
@@ -201,6 +205,9 @@ class MsImageDisExtended(nn.Module):
                 loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
+                
+            if first_layer:
+                return loss
         return loss    
     
     

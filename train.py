@@ -308,6 +308,8 @@ while train_G2:
         zip(train_loader_a_w_mask, train_loader_b_w_mask)
     ):
         trainer.update_learning_rate_HD()
+        
+        warmup = iteration_G2<5000
         images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
         mask_a, mask_b     = mask_a.cuda().detach(), mask_b.cuda().detach()
 
@@ -322,7 +324,7 @@ while train_G2:
                 trainer.gen_HD_update(
                     images_a, images_HD_a, images_b, images_HD_b, 
                     config, mask_a, mask_HD_a, mask_b, mask_HD_b, 
-                    comet_exp
+                    comet_exp,warmup=warmup
                 )
             torch.cuda.synchronize()
 
