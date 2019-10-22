@@ -51,8 +51,10 @@ parser.add_argument("--ckpt_path_HD", type=str, default=".", help="ckpt_path_HD"
 parser.add_argument("--resume", action="store_true")
 parser.add_argument("--trainer", type=str, default="MUNIT", help="MUNIT|UNIT")
 parser.add_argument("--git_hash", type=str, default="no-git-hash", help="output of git log --pretty=format:'%h' -n 1")
-
+parser.add_argument("--warmup", type=int, default=100000, help="number of iteration for which push toward imitating a pixelwise upsampling")
+parser.add_argument("--gpu", type=int, default=0, help="cuda device")
 opts = parser.parse_args()
+os.environ["CUDA_VISIBLE_DEVICES"]=opts.gpu
 
 if comet_exp is not None:
     comet_exp.log_asset(file_data=opts.config, file_name="config.yaml")
@@ -334,7 +336,7 @@ while train_G2:
         
         # warmup is boolean value 
         # When warming up we push the upsampler towards learning a pixelwise upsampling operation
-        warmup = iteration_G2 < 5000 # We could set an hyperparameter here
+        warmup = iteration_G2 < opts.warmup # We could set an hyperparameter here
         
         images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
         mask_a, mask_b     = mask_a.cuda().detach(), mask_b.cuda().detach()
