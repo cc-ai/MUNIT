@@ -2,8 +2,11 @@
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
+# Package to log experiment results online see: https://www.comet.ml/
 from comet_ml import Experiment
 comet_exp = Experiment()
+
+# Utils function and dataloader
 from utils import (
     get_all_data_loaders,
     prepare_sub_folder,
@@ -34,6 +37,7 @@ import sys
 import tensorboardX
 import shutil
 
+# Parse the different arguments
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--config",
@@ -69,11 +73,16 @@ elif opts.trainer == "UNIT":
     trainer = UNIT_Trainer(config)
 else:
     sys.exit("Only support MUNIT|UNIT")
+
+# Send model to cuda
 trainer.cuda()
 
+# Define natural images dataloader for domain A and B
 train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(
     config
 )
+
+# If semantic consistency is used, define a dataloader with binary masks
 if config["semantic_w"] > 0:
     train_loader_a_w_mask = get_data_loader_mask_and_im(
         config["data_list_train_a"],
@@ -99,6 +108,7 @@ if config["semantic_w"] > 0:
         crop=True,
     )
 
+# If Synthetic images are used, define a dataloader with paired images
 if config["synthetic_frequency"] > 0:
     synthetic_loader = get_synthetic_data_loader(
         config["data_list_train_a_synth"],
@@ -112,7 +122,8 @@ if config["synthetic_frequency"] > 0:
         num_workers=config["num_workers"],
         crop=True,
     )
-    
+
+# If FID is to be evaluated to monitor the training, define FID dataloader
 if config["eval_fid"] > 0:
     fid_loader   = get_fid_data_loader(
         config["data_list_fid_a"],
@@ -123,7 +134,8 @@ if config["eval_fid"] > 0:
         num_workers=config["num_workers"]
     )
     get_inception_metrics = prepare_inception_metrics(inception_moment=config["inception_moment_path"],parallel=False)
-    
+
+# Define the dataloader that will be used to display intermediate results (train and test on both domain)
 train_display_images_a = torch.stack(
     [train_loader_a.dataset[i] for i in range(display_size)]
 ).cuda()
@@ -147,16 +159,19 @@ checkpoint_directory, image_directory = prepare_sub_folder(output_directory)
 
 print('Checkpoint directory :',checkpoint_directory) 
 
+# Copy config file to output folder
 shutil.copy(
     opts.config, os.path.join(output_directory, "config.yaml")
-)  # copy config file to output folder
+)  
 
 # Start training
 iterations = (
     trainer.resume(opts.ckpt_path, hyperparameters=config) if opts.resume else 0
 )
 
+# train_G1 is a boolean set to true when training MUNIT only
 train_G1 = False
+
 while train_G1:
     for it, ((images_a, mask_a), (images_b, mask_b)) in enumerate(
         zip(train_loader_a_w_mask, train_loader_b_w_mask)
@@ -169,7 +184,7 @@ while train_G1:
             # Main training code
             trainer.dis_update(images_a, images_b, config, comet_exp)
 
-            if (iterations + 1)% config["ratio_disc_gen"] ==0:
+            if (iterations + 1)% config["ratio_disc_gen"] == 0:
                 trainer.gen_update(
                     images_a, images_b, config, mask_a, mask_b, comet_exp
                 )
@@ -178,7 +193,8 @@ while train_G1:
                     images_a, images_b, config, comet_exp
                 )
             torch.cuda.synchronize()
-
+            
+        # If Synthetic images are used
         if config["synthetic_frequency"] > 0:
             if iterations % config["synthetic_frequency"] == 0:
                 images_a, images_b, mask_b = next(iter(synthetic_loader))
@@ -189,11 +205,13 @@ while train_G1:
                 with Timer("Elapsed time in update: %f"):
                     # Main training code
                     trainer.dis_update(images_a, images_b, config, comet_exp)
+                    
+                    # Call gen_update with synth set to true (different loss) to take into account the pairs
                     trainer.gen_update(
-                        images_a, images_b, config, mask_a, mask_b, comet_exp,True
+                        images_a, images_b, config, mask_a, mask_b, comet_exp = comet_exp, synth = True
                     )
 
-        # Write images
+        # Write images to comet
         if (iterations + 1) % config["image_save_iter"] == 0:
             with torch.no_grad():
                 test_image_outputs = trainer.sample(
@@ -216,9 +234,7 @@ while train_G1:
                 "train_%08d" % (iterations + 1),
                 comet_exp,
             )
-            ####################################### 
-            #           WORK in Progress          #
-            #######################################
+            
             # Compute FID
             FID = get_inception_metrics(trainer, fid_loader,prints=True, use_torch=False)
             if comet_exp is not None:
@@ -248,8 +264,12 @@ while train_G1:
         if iterations >= max_iter:
             sys.exit("Finish training")
 
+# In the case we want to train MUNIT's pix2pixHD-like extension
+            
 # Instantiate dataloader for G2
-train_G2 = False
+train_G2 = True
+
+# Use HD dataloader
 train_loader_a_w_mask = get_data_loader_mask_and_im_HD(
     config["data_list_train_a"],
     config["data_list_train_a_seg"],
@@ -276,6 +296,7 @@ train_loader_b_w_mask = get_data_loader_mask_and_im_HD(
     crop=True,
 )
 
+# Define the lists of images to display
 list_image_HD_a = []
 list_image_HD_b = []
 list_image_a    = []
@@ -292,24 +313,29 @@ for i in range(display_size):
     list_image_b.append(images_b)
 
 train_display_images_a_HD = torch.stack(list_image_HD_a).cuda()
-train_display_images_a = torch.stack(list_image_a).cuda()
-train_display_images_b = torch.stack(list_image_b).cuda()
+train_display_images_a    = torch.stack(list_image_a).cuda()
+train_display_images_b    = torch.stack(list_image_b).cuda()
 train_display_images_b_HD = torch.stack(list_image_HD_b).cuda()
 
+# Load ckpt for the extension only if resume HD is provided 
 iteration_G2 = 0
 print("opts.ckpt_path_HD" , opts.ckpt_path_HD)
 if opts.ckpt_path_HD != ".":
     iteration_G2 = (
     trainer.resume(opts.ckpt_path_HD, hyperparameters=config, HD_ckpt=True) if opts.resume else 0
 )
-    
+
+# Train G2 only
 while train_G2:
     for it, ((images_HD_a, mask_HD_a, images_a, mask_a), (images_HD_b, mask_HD_b, images_b, mask_b)) in enumerate(
         zip(train_loader_a_w_mask, train_loader_b_w_mask)
     ):
         trainer.update_learning_rate_HD()
         
-        warmup = iteration_G2<5000
+        # warmup is boolean value 
+        # When warming up we push the upsampler towards learning a pixelwise upsampling operation
+        warmup = iteration_G2 < 5000 # We could set an hyperparameter here
+        
         images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
         mask_a, mask_b     = mask_a.cuda().detach(), mask_b.cuda().detach()
 
@@ -318,13 +344,16 @@ while train_G2:
 
         with Timer("Elapsed time in update: %f"):
             # Main training code
-            trainer.dis_HD_update(images_a, images_HD_a, images_b, images_HD_b, config, comet_exp)
-            # Continue the Dev here 
+            trainer.dis_HD_update(images_a, images_HD_a, images_b, images_HD_b, config, comet_exp,
+                                  lamda_dis = 1.0-torch.exp(torch.tensor(-0.00001*iteration_G2, device = 'cuda')))
+             
             if (iteration_G2 + 1)% config["ratio_disc_gen"] ==0:
                 trainer.gen_HD_update(
                     images_a, images_HD_a, images_b, images_HD_b, 
                     config, mask_a, mask_HD_a, mask_b, mask_HD_b, 
-                    comet_exp,warmup=warmup
+                    comet_exp,
+                    warmup = warmup, 
+                    lambda_dis =  1.0-torch.exp(torch.tensor(-0.00001*iteration_G2, device = 'cuda'))
                 )
             torch.cuda.synchronize()
 
@@ -356,10 +385,14 @@ while train_G2:
             sys.exit("Finish training")
 
 
-train_global = True
+# Train MUNIT and G2 at the same time
+train_global = False
+
+# Define the scheduler 
 trainer.dis_scheduler = get_scheduler(trainer.dis_opt_global, config, iterations)
 trainer.gen_scheduler = get_scheduler(trainer.gen_opt_global, config, iterations)
 
+# Initialize number of it
 iteration_global = 0
 while train_global:
     for it, ((images_HD_a, mask_HD_a, images_a, mask_a), (images_HD_b, mask_HD_b, images_b, mask_b)) in enumerate(
@@ -376,7 +409,6 @@ while train_global:
             # Main training code
             trainer.dis_global_update(images_a, images_HD_a, images_b, images_HD_b, config, comet_exp)
             
-            # Continue the Dev here 
             if (iteration_global + 1)% config["ratio_disc_gen_global"] == 0:
                 trainer.gen_global_update(
                     images_a, images_HD_a, images_b, images_HD_b, 
