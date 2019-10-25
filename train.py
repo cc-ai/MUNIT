@@ -52,7 +52,7 @@ parser.add_argument("--resume", action="store_true")
 parser.add_argument("--trainer", type=str, default="MUNIT", help="MUNIT|UNIT")
 parser.add_argument("--git_hash", type=str, default="no-git-hash", help="output of git log --pretty=format:'%h' -n 1")
 parser.add_argument("--warmup", type=int, default=100000, help="number of iteration for which push toward imitating a pixelwise upsampling")
-parser.add_argument("--gpu", type=int, default=0, help="cuda device")
+parser.add_argument("--gpu", type=str, default="0", help="cuda device")
 opts = parser.parse_args()
 os.environ["CUDA_VISIBLE_DEVICES"]=opts.gpu
 
