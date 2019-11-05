@@ -31,7 +31,7 @@ parser.add_argument(
     help="whether use synchronized style code or not",
 )
 parser.add_argument(
-    "--output_only",
+    "--save_input",
     action="store_true",
     help="whether use synchronized style code or not",
 )
@@ -108,9 +108,14 @@ with torch.no_grad():
         x_a = Variable(
             transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
         )
+        if opts.save_input:
+            inputs = (x_a + 1) / 2.0
+            path = os.path.join(opts.output_folder, "input{:03d}.jpg".format(j))
+            vutils.save_image(inputs.data, path, padding=0, normalize=True)
+            
         # Extract content and style
         c_a, _ = trainer.gen.encode(x_a, 1)
-
+        
         # Perform cross domain translation
         x_ab = trainer.gen.decode(c_a, s_b, 2)
 
