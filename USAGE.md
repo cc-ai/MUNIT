@@ -1,9 +1,12 @@
 [![License CC BY-NC-SA 4.0](https://img.shields.io/badge/license-CC4.0-blue.svg)](https://raw.githubusercontent.com/NVIDIA/FastPhotoStyle/master/LICENSE.md)
-![Python 2.7](https://img.shields.io/badge/python-2.7-green.svg)
 ![Python 3.6](https://img.shields.io/badge/python-3.6-green.svg)
-## MUNIT: Multimodal UNsupervised Image-to-image Translation
+
+# Visualizing Climate Change - MUNIT
 
 ### License
+
+This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT) for the needs of the [VICC project](https://github.com/cc-ai/kdb). 
+It keeps the same CC BY-NC-SA 4.0 license
 
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode). 
@@ -11,48 +14,71 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 ### Dependency
 
 
-pytorch, yaml, tensorboard (from https://github.com/dmlc/tensorboard), and tensorboardX (from https://github.com/lanpa/tensorboard-pytorch).
+pytorch, yaml, comet_ml to visualize the results
 
 
 The code base was developed using Anaconda with the following packages.
 ```
-conda install pytorch=0.4.1 torchvision cuda91 -c pytorch;
-conda install -y -c anaconda pip;
-conda install -y -c anaconda pyyaml;
-pip install tensorboard tensorboardX;
+conda install pytorch=0.4.1 torchvision cuda90 -c pytorch
+conda install -y -c anaconda pip
+conda install -y -c anaconda pyyaml
+pip install -r ./requirements.txt
 ```
 
-We also provide a [Dockerfile](Dockerfile) for building an environment for running the MUNIT code.
+### Testing the demo
 
-### Example Usage
+First, download the [pretrained models](https://drive.google.com/open?id=1cSxke52PcYV00mzKjai3JSIAXN82w2O6) and put them in `models` folder.
 
-#### Testing 
+Run the following command to translate a folder of non flooded image to it's flooded version:
+    python test.py --configs ../configs/config.yaml --checkpoint models/gen_00370000.pt --input ../input_folder/ --output_folder output_folder/ --style ../Style_Image/style_image.jpg
 
-First, download the [pretrained models](https://drive.google.com/drive/folders/10IEa7gibOWmQQuJUIUOkh-CV4cm6k8__?usp=sharing) and put them in `models` folder.
+It is possible to control the style of output using an example style_image. The results are stored in `outputs` folder.
 
-###### Multimodal Translation
+# For Developers
 
-Run the following command to translate edges to shoes
-    
-    python test.py --config configs/edges2shoes_folder.yaml --input inputs/edge.jpg --output_folder outputs --checkpoint models/edges2shoes.pt --a2b 1
+### Training
 
-The results are stored in `outputs` folder. By default, it produces 10 random translation outputs.
- 
-###### Example-guided Translation
+1. Generate the dataset you want to use. The data we use is not currently available for public re-use. Please contact us if you want more informations.
 
-The above command outputs diverse shoes from an edge input. In addition, it is possible to control the style of output using an example shoe image.
-    
-    python test.py --config configs/edges2shoes_folder.yaml --input inputs/edge.jpg --output_folder outputs --checkpoint models/edges2shoes.pt --a2b 1 --style inputs/shoe.jpg
+2. Setup the yaml file. Check out `configs/config_HD.yaml`. Currently we only support list-based dataset organization, check out the parameter: data_list. In the `yaml` config file, for each domain and for `train` and `test`, specify the path to the folder containing the images and a `txt` file listing the images in the folder to be considered for training/testing. E.g.  
+    Example trainA.txt.
 
- 
-#### Training
-1. Download the dataset you want to use. For example, you can use the edges2shoes dataset provided by [Zhu et al.](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix)
-
-3. Setup the yaml file. Check out `configs/edges2handbags_folder.yaml` for folder-based dataset organization. Change the `data_root` field to the path of your downloaded dataset. For list-based dataset organization, check out `configs/edges2handbags_list.yaml`
-
-3. Start training
     ```
-    python train.py --config configs/edges2handbags_folder.yaml
+    ./images_A/dyzWTle6XGPRvdZiFqwMLQ.jpg
+    ./images_A/sGXE_tiBOjqtidWK_VgUOA.jpg
+    ./images_A/gxv9RvgHZi_XF11EbJ4Opw.jpg
+    ./images_A/QV_vTfZC2JSs69XzsbmqXA.jpg
     ```
-    
-4. Intermediate image outputs and model binary files are stored in `outputs/edges2handbags_folder`
+
+3. Start training: in 256x256
+
+    ```
+    python train.py --config configs/config_256.yaml
+    ```
+
+##### Continue training
+
+Use `--resume` with the same `output_path` AND for now, for some reason, you need to use the **same name** for the config file.
+
+#### How to use comet_ml ?
+
+Create a file at `MUNIT/scripts/.comet.config` (which is ignored by git):
+
+```
+[comet]
+api_key=YOUR-API-KEY
+workspace=YOUR-WORKSPACE
+project_name=THE-PROJECT
+```
+
+For more information, [see docs](https://www.comet.ml/docs/python-sdk/advanced/#comet-configuration-variables)
+
+## Experiments run
+
+https://docs.google.com/spreadsheets/d/1Csdi2B-LJPChLwO1ng4i2sjPgQxrNRlempa05o3a7og/edit?usp=sharing
+
+
+## Branches
+
+Master is the main branch, code that is meant to be deployed on the https://climatechangeai.org
+feature/cocoStuff_merged_logits is a branch where we merged several classes of cocostuff so that we have a semantic segmentation consistency that is able to detect water properly. See utils.py and the assignment_dir function. 
