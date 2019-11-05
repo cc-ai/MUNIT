@@ -12,9 +12,9 @@
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/cc-ai/MUNIT/master/results/flooding2.gif" style="zoom:100%;" alt="{{ include.description }}" class="center"> 
-  <figcaption>Visualization made with a Generative Adversarial Network (GAN) </figcaption> 
 </p>
-
+                
+                        Visualization made with a Generative Adversarial Network (GAN)
 
 
 <p style="text-align:justify;">Recent research has explored the <b>potential of translating numerical climate models into representations</b>  that are intuitive and easy to understand, for instance via <b>climate-analog mapping</b>  (Fitzpatrick et al., 2019) and by leveraging relevant social group norms (van der Linden, 2015). Other approaches have focused on selecting relevant images to best represent climate change impacts (Sheppard, 2012; Corner & Clarke, 2016) as well as using artistic renderings of possible future landscapes (Giannachi, 2012) and even video games (Angel et al., 2015). However, to our knowledge, our project is the <b>first application of generative models to generate images of future climate change scenarios.</b>  </p>
