@@ -21,5 +21,5 @@
 
 ### To learn more about how we develop our model click: Here
 
-#### To Jump directly to the code go to: Usage.md
+#### To Jump directly to the code go to: [USAGE.md](./USAGE.md)
 
