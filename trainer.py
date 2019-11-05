@@ -3,7 +3,7 @@ Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 from comet_ml import Experiment
-from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen,LocalUpsampler,AdaINGen_double_HD,MsImageDisExtended
+from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen,LocalUpsampler,AdaINGen_double_HD,MsImageDisExtended,MsImageDisDeeper
 from utils import (
     weights_init,
     get_model_list,
@@ -54,11 +54,11 @@ class MUNIT_Trainer(nn.Module):
         else:
             print("self.gen_state unknown value: or not HD", self.gen_state)
 
-        self.dis_a = MsImageDisExtended(
+        self.dis_a = MsImageDisDeeper(
             hyperparameters["input_dim_a"], hyperparameters["dis"]
         )  # discriminator for domain a
         
-        self.dis_b = MsImageDisExtended(
+        self.dis_b = MsImageDisDeeper(
             hyperparameters["input_dim_b"], hyperparameters["dis"]
         )  # discriminator for domain b
         
