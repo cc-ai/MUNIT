@@ -1,152 +1,26 @@
-# VICC MUNIT
+# Introduction
 
-This repo contains the code adapted from [MUNIT](https://github.com/NVlabs/MUNIT) for the needs of the [VICC project](https://github.com/cc-ai/kdb). 
+<p style="text-align:justify;" >
+    Dramatic and rapid changes to the global economy are required in order to limit climate-related risks for natural and human systems (IPCC, 2018). <b>Governmental interventions are needed to fight climate change</b> and they need strong public support.  However,  <b>it is difficult to mentally simulate the complex effects of climate change</b> (O’Neill & Hulme, 2009) and people often discount the impact that their actions will have on the future, especially if the <b>consequences are long-term</b>, <b>abstract</b>, and at odds with current behaviors and identities (Marshall, 2015).
+</p> 
 
-## Requirements
-```
-conda install pytorch=0.4.1 torchvision cuda90 -c pytorch
-conda install -y -c anaconda pip
-conda install -y -c anaconda pyyaml
-pip install -r ./requirements.txt
-```
-(Not the minimum requirements yet.)
+- We are developing a tool to **help the public understand the consequences of climate change.** 
 
-## How to Use
+- We intend to **make people aware of Climate Change** **in their direct environment** by showing them concrete examples. 
 
-  - [Data](#data)
-    - [Type](#type)
-      - [Option 1](#option-1)
-    - [Option 2](#option-2)
-    - [Storage](#storage)
-      - [Online](#online)
-      - [Mila Cluster](#mila-cluster)
-  - [Train](#train)
-    - [Continue training](#continue-training)
-  - [Test](#test)
-  - [Modifications to the original MUNIT](#modifications-to-the-original-munit)
-  - [Results](#results)
-  - [Experiments run](#experiments-run)
-
-## How to use
-
-Everything in MUNIT is configurable through a `.yaml` file, which can be found in `configs/`. Currently we use [`house2flooded_house256.yaml`](https://github.com/cc-ai/MUNIT/blob/master/configs/house2flooded_house256.yaml)
-
-If you use `train.py` you ***need*** to have the `comet.ml` configuration variables set. Here is the hierarchy:
-
-1. An argument passed to Experiment()
-2. An environment variable
-3. A setting in the .comet.config file in your current folder
-4. A setting in the .comet.config file in your `$HOME` directory
-
-In order not to change every time and comit unnecessarily, it is recommended not to use 1.
-
-For instance, you can have this file as `MUNIT/.comet.config` (which is ignored by git):
-
-```
-[comet]
-api_key=YOUR-API-KEY
-workspace=YOUR-WORKSPACE
-project_name=THE-PROJECT
-```
-
-Or only the first 2 variables and `$ COMET_PROJECT_NAME=My-Project python train.py --config ...`. For more, [see docs](https://www.comet.ml/docs/python-sdk/advanced/#comet-configuration-variables)
-
-### Data
-
-Munit expects 2 locations with unpaired images.
-
-#### Type
-
-##### Option 1
-
-In the `yaml` config file, for each domain and for `train` and `test`, specify the path to the folder containing the images and a `txt` file listing the images in the fodler to be considered for training/testing. E.g.
-
-```
-data_folder_train_a: /network/home/cosnegau/MUNIT/trainA/
-data_list_train_a: /network/home/cosnegau/MUNIT/trainA.txt
-data_folder_test_a: /network/home/cosnegau/MUNIT/testA/
-data_list_test_a: /network/home/cosnegau/MUNIT/testA.txt
-data_folder_train_b: /network/home/cosnegau/MUNIT/trainB/
-data_list_train_b: /network/home/cosnegau/MUNIT/trainB.txt
-data_folder_test_b: /network/home/cosnegau/MUNIT/testB/
-data_list_test_b: /network/home/cosnegau/MUNIT/testB.txt
-data_list_train_a_seg: /network/home/cosnegau/MUNIT/trainA_seg.txt
-data_list_train_b_seg: /network/home/cosnegau/MUNIT/trainB_seg.txt
-```
-
-example trainA.txt:
-
-```
-/network/tmp1/ccai/data/mapillary/validation/images/dyzWTle6XGPRvdZiFqwMLQ.jpg
-/network/tmp1/ccai/data/mapillary/validation/images/sGXE_tiBOjqtidWK_VgUOA.jpg
-/network/tmp1/ccai/data/mapillary/validation/images/gxv9RvgHZi_XF11EbJ4Opw.jpg
-/network/tmp1/ccai/data/mapillary/validation/images/QV_vTfZC2JSs69XzsbmqXA.jpg
-```
-
-#### Option 2
-
-In the `yaml` file, specify a `data_root` field pointing to a folder which contains the files and fodlers listed above 
-
-```
-data_root: ./datasets/demo_edges2handbags/     # dataset folder location
-```
-
-#### Storage
-
-##### Online
-
-The data we use is not currently available for public re-use. Contact us.
-
-##### Mila Cluster
-
-Raw data is located in `/network/tmp1/ccai/data`
-
-### Train
-
-Specify the parameters in the config `yaml`.
-
-Simply train!
-
-```
-python train.py --config configs/house2flooded_house256.yaml
-```
-
-#### Continue training
-
-Use `--resume` with the same `output_path` AND for now, for some reason, you need to use the **same name** for the config file...
-
-### Test
-Select one input folder containing several images that you would like to flood and a style image from the flooded domain. The style of the latter will be applied to input images et saved in output_folder.
-Use the config file saved along with the checkpoints. Checkpoint is the path to the generator checkpoint. 
-```
-python test.py --configs/config.yaml --checkpoint model_name/checkpoints/gen_00205000.pt --input input_folder/ --output_folder output_folder/ --style style_image.jpg
-```
-### Modifications to the original MUNIT
-
-### Results
-
-<div class="row">
-  <div class="column">
-    <img src="./results/house2flood/output013.jpg" alt="Snow" style="width:100%" width="300">
-  </div>
-  <div class="column">
-    <img src="./results/house2flood/48cjABBpw7KOlHr7CF5NCwback.png" alt="Forest" style="width:25%" width="300">
-  </div>
-</div>
-<div class="row">
-  <div class="column">
-    <img src="./results/house2flood/output014.jpg" alt="Snow" style="width:100%" width="300">
-  </div>
-  <div class="column">
-    <img src="./results/house2flood/lUe1NopJ06oT4267RwDs0Aback.png" alt="Forest" style="width:25%" width="300">
-  </div>
+<p style="text-align:justify;">Currently we are focusing on simulating images of one specific extreme climate event: floods. We are aiming to create a flood simulator which, given a user-entered address, is able to extract a street view image of the surroundings and to alter it to generate a plausible image projecting flood where it is likely to occur.</p>
+<div style="text-align: center">
+<figure class="image"> 
+  <img src="https://raw.githubusercontent.com/cc-ai/MUNIT/master/results/flooding2.gif" style="zoom:100%;" alt="{{ include.description }}" class="center"> 
+  <figcaption>Visualization made with a Generative Adversarial Network (GAN) </figcaption> 
+</figure>
 </div>
 
-### Experiments run
-
-https://docs.google.com/spreadsheets/d/1Csdi2B-LJPChLwO1ng4i2sjPgQxrNRlempa05o3a7og/edit?usp=sharing
 
 
-## Branches
-Master is the main branch, code that is meant to be deployed on the https://climatechangeai.org
-feature/cocoStuff_merged_logits is a branch where we merged several classes of cocostuff so that we have a semantic segmentation consistency that is able to detect water properly. See utils.py and the assignment_dir function. 
+<p style="text-align:justify;">Recent research has explored the <b>potential of translating numerical climate models into representations</b>  that are intuitive and easy to understand, for instance via <b>climate-analog mapping</b>  (Fitzpatrick et al., 2019) and by leveraging relevant social group norms (van der Linden, 2015). Other approaches have focused on selecting relevant images to best represent climate change impacts (Sheppard, 2012; Corner & Clarke, 2016) as well as using artistic renderings of possible future landscapes (Giannachi, 2012) and even video games (Angel et al., 2015). However, to our knowledge, our project is the <b>first application of generative models to generate images of future climate change scenarios.</b>  </p>
+
+### To learn more about how we develop our model click: Here
+
+#### To Jump directly to the code go to: Usage.md
+
