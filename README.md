@@ -9,12 +9,11 @@
 - We intend to **make people aware of Climate Change** **in their direct environment** by showing them concrete examples. 
 
 <p style="text-align:justify;">Currently we are focusing on simulating images of one specific extreme climate event: floods. We are aiming to create a flood simulator which, given a user-entered address, is able to extract a street view image of the surroundings and to alter it to generate a plausible image projecting flood where it is likely to occur.</p>
-<div style="text-align: center">
-<figure class="image"> 
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/cc-ai/MUNIT/master/results/flooding2.gif" style="zoom:100%;" alt="{{ include.description }}" class="center"> 
   <figcaption>Visualization made with a Generative Adversarial Network (GAN) </figcaption> 
-</figure>
-</div>
+</p>
 
 
 
