@@ -2,9 +2,8 @@
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from torch.utils.serialization import load_lua
+
 from torch.utils.data import DataLoader, Dataset
-from networks import Vgg16
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torchvision import transforms, models
@@ -687,7 +686,7 @@ def get_config(config):
         dict -- parsed yaml file
     """
     with open(config, "r") as stream:
-        return yaml.load(stream)
+        return yaml.safe_load(stream)
 
 
 def eformat(f, prec):
@@ -937,32 +936,9 @@ def get_model_list(dirname, key):
 
 
 def load_vgg16(model_dir):
-    """Load vgg16 model
-    from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py
-    
-    Arguments:
-        model_dir {str} -- directory where the model is / where to put the model
-    
-    Returns:
-        model -- vgg16 model 
-    """
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
-    if not os.path.exists(os.path.join(model_dir, "vgg16.weight")):
-        if not os.path.exists(os.path.join(model_dir, "vgg16.t7")):
-            os.system(
-                "wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O "
-                + os.path.join(model_dir, "vgg16.t7")
-            )
-        vgglua = load_lua(os.path.join(model_dir, "vgg16.t7"))
-        vgg = Vgg16()
-        for (src, dst) in zip(vgglua.parameters()[0], vgg.parameters()):
-            dst.data[:] = src
-        torch.save(vgg.state_dict(), os.path.join(model_dir, "vgg16.weight"))
-    vgg = Vgg16()
-    vgg.load_state_dict(torch.load(os.path.join(model_dir, "vgg16.weight")))
-    return vgg
-
+    raise NotImplementedError(
+        "This function relies on torch.utils.serialization.load_lua which is deprecated"
+    )
 
 def load_flood_classifier(ckpt_path):
     """ Load flood classifier based on a pretrained resnet18 network.
@@ -1012,7 +988,8 @@ class Resnet34_8s(nn.Module):
 
         x = self.resnet34_8s(x)
 
-        x = nn.functional.upsample_bilinear(input=x, size=input_spatial_dim)
+        #x = nn.functional.upsample_bilinear(input=x, size=input_spatial_dim) 0.3
+        x = nn.functional.interpolate(input=x,size=input_spatial_dim, mode="bilinear")
 
         return x
 
