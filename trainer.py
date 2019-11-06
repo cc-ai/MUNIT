@@ -459,7 +459,7 @@ class MUNIT_Trainer(nn.Module):
 
 
     def gen_HD_update(
-        self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp=None, synth=False, warmup = False, lambda_dis = 0.0
+        self, x_a_HD, x_b_HD, hyperparameters, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp=None, synth=False, warmup = False, lambda_dis = 0.0
     ):
         """Update HD generator (Upsampler & Downsampler)
         
@@ -481,6 +481,10 @@ class MUNIT_Trainer(nn.Module):
             comet_exp {[type]} -- [description] (default: {None})
             synth {bool} -- [description] (default: {False})
         """
+        # Regular downsampling
+        x_a = self.dis_a.downsample(x_a_HD) 
+        x_b = self.dis_b.downsample(x_b_HD)
+        
         self.gen_opt_HD.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -499,8 +503,8 @@ class MUNIT_Trainer(nn.Module):
             Downsampled_x_b = self.gen.localDown(x_b_HD)
 
             # Upsample
-            x_a_recon_HD = self.gen.localUp(embedding_x_a+Downsampled_x_a)
-            x_b_recon_HD = self.gen.localUp(embedding_x_b+Downsampled_x_b)
+            x_a_recon_HD = self.gen.localUp(embedding_x_a + Downsampled_x_a)
+            x_b_recon_HD = self.gen.localUp(embedding_x_b + Downsampled_x_b)
 
             # decode (cross domain)
             if self.guided == 1:
@@ -509,8 +513,8 @@ class MUNIT_Trainer(nn.Module):
             else:
                 print("self.guided unknown value:", self.guided)
             # Upsample
-            x_ab_HD = self.gen.localUp(embedding_x_ab+Downsampled_x_a)
-            x_ba_HD = self.gen.localUp(embedding_x_ba+Downsampled_x_b)
+            x_ab_HD = self.gen.localUp(embedding_x_ab + Downsampled_x_a)
+            x_ba_HD = self.gen.localUp(embedding_x_ba + Downsampled_x_b)
 
             # # encode again
             # c_b_recon, s_a_recon = self.gen.encode(x_ba, 1)
@@ -543,8 +547,8 @@ class MUNIT_Trainer(nn.Module):
 
             
         # GAN loss
-        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba_HD, lambda_D = lambda_dis)
-        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab_HD, lambda_D = lambda_dis)
+        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba, x_ba_HD, lambda_D = lambda_dis)
+        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab, x_ab_HD, lambda_D = lambda_dis)
 
         # # # semantic-segmentation loss
         # self.loss_sem_seg = (
@@ -1012,7 +1016,7 @@ class MUNIT_Trainer(nn.Module):
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
-    def sample_HD(self, x_a, x_a_HD, x_b, x_b_HD):
+    def sample_HD(self, x_a_HD, x_b_HD,lambda_dis = 0):
         """ 
         Infer the model on a batch of image
         
@@ -1025,6 +1029,10 @@ class MUNIT_Trainer(nn.Module):
             Or if self.semantic_w is true: x_a, autoencode(x_a), Semantic segmentation x_a, 
             x_ab_1,semantic segmentation x_ab_1, x_ab_2
         """
+        
+        x_a = self.dis_a.downsample(x_a_HD) # Regular downsampling function
+        x_b = self.dis_b.downsample(x_b_HD) # Regular downsampling function
+        
         self.eval()
         s_a1 = Variable(self.s_a)
         s_b1 = Variable(self.s_b)
@@ -1060,9 +1068,14 @@ class MUNIT_Trainer(nn.Module):
                 x_ab_.append(nn.Upsample(scale_factor=2, mode='nearest')(x_ab))
                 x_ba_.append(nn.Upsample(scale_factor=2, mode='nearest')(x_ba))
                 
+                x_ab_HD =  self.gen.localUp(embedding_x_ab + Downsampled_x_a)
+                x_ba_HD =  self.gen.localUp(embedding_x_ba + Downsampled_x_b)
+                
+                transition_ab = lambda_dis*x_ab_HD + (1-lambda_dis)*self.dis_a.upsample(x_ab)
+                transition_ba = lambda_dis*x_ba_HD + (1-lambda_dis)*self.dis_a.upsample(x_ba)
                 # Upsample
-                x_ab_HD.append(self.gen.localUp(embedding_x_ab + Downsampled_x_a))
-                x_ba_HD.append(self.gen.localUp(embedding_x_ba + Downsampled_x_b))
+                x_ab_HD_.append(transition_ab)
+                x_ba_HD_.append(transition_ba)
 
         else:
             print("self.gen_state unknown value:", self.gen_state)
@@ -1072,8 +1085,8 @@ class MUNIT_Trainer(nn.Module):
             self.segmentation_model.eval()
         
         x_a_recon_HD, x_b_recon_HD = torch.cat(x_a_recon_HD), torch.cat(x_b_recon_HD)
-        x_ba_HD = torch.cat(x_ba_HD)
-        x_ab_HD = torch.cat(x_ab_HD)
+        x_ba_HD = torch.cat(x_ba_HD_)
+        x_ab_HD = torch.cat(x_ab_HD_)
         x_ab_   = torch.cat(x_ab_)
         x_ba_   = torch.cat(x_ba_)
 
@@ -1190,7 +1203,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_dis_total.backward()
         self.dis_opt.step()
 
-    def dis_HD_update(self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, comet_exp=None, lamda_dis=0.0):
+    def dis_HD_update(self, x_a_HD, x_b_HD, hyperparameters, comet_exp=None, lamda_dis=0.0):
         """
         Update the weights of the discriminator
         
@@ -1202,6 +1215,9 @@ class MUNIT_Trainer(nn.Module):
         Keyword Arguments:
             comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})        
         """
+        x_a = self.dis_a.downsample(x_a_HD) # Regular downsampling function
+        x_b = self.dis_b.downsample(x_b_HD) # Regular downsampling function
+        
         self.dis_HD_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -1223,18 +1239,14 @@ class MUNIT_Trainer(nn.Module):
         Downsampled_x_a = self.gen.localDown(x_a_HD)
         Downsampled_x_b = self.gen.localDown(x_b_HD)
         
-        #         print("embedding_xab .shape ", embedding_xab.shape)
-        #         print("Downsampled_x_a.shape", Downsampled_x_a.shape)
-        #         print("embedding_xab .shape ", embedding_xba.shape)
-        #         print("Downsampled_x_a.shape", Downsampled_x_b.shape)
-        
         # Upsampling part
         upsampled_xab = self.gen.localUp(embedding_xab+Downsampled_x_a)
         upsampled_xba = self.gen.localUp(embedding_xba+Downsampled_x_b)
         
         # Dis_HD loss
-        self.loss_dis_HD_a = self.dis_a.calc_dis_loss(upsampled_xba.detach(),x_a_HD, lambda_D = lamda_dis) 
-        self.loss_dis_HD_b = self.dis_b.calc_dis_loss(upsampled_xab.detach(),x_b_HD, lambda_D = lamda_dis)
+        # input_fake, input_fake_HD, input_real_HD, lambda_D =
+        self.loss_dis_HD_a = self.dis_a.calc_dis_loss(x_ba, upsampled_xba.detach(), x_a_HD, lambda_D = lamda_dis) 
+        self.loss_dis_HD_b = self.dis_b.calc_dis_loss(x_ab, upsampled_xab.detach(), x_b_HD, lambda_D = lamda_dis)
 
         if comet_exp is not None:
             comet_exp.log_metric("loss_dis_HD_b", self.loss_dis_HD_b)
@@ -1406,20 +1418,20 @@ class MUNIT_Trainer(nn.Module):
             # state_dict a
             state_dict_ = state_dict['a']
             
-            # store state_dict keys
-            keys = []
-            for key in state_dict_:
-                keys.append(key)
+            #             # store state_dict keys
+            #             keys = []
+            #             for key in state_dict_:
+            #                 keys.append(key)
 
-            # Iterate through the keys and replace them with their new name in the extanded architecture
-            for key in keys:
-                split_list = key.split('.')
-                n_layer = int(split_list[1]) 
-                split_list[1] = str(n_layer + 1)
-                new_key = ".".join(split_list)
-                state_dict_[new_key] = state_dict_[key]
-                if n_layer == 0:
-                    del state_dict_[key]
+            #             # Iterate through the keys and replace them with their new name in the extanded architecture
+            #             for key in keys:
+            #                 split_list = key.split('.')
+            #                 n_layer = int(split_list[1]) 
+            #                 split_list[1] = str(n_layer + 1)
+            #                 new_key = ".".join(split_list)
+            #                 state_dict_[new_key] = state_dict_[key]
+            #                 if n_layer == 0:
+            #                     del state_dict_[key]
 
             # state_dict a
             pretrained_dict = state_dict_
@@ -1433,20 +1445,20 @@ class MUNIT_Trainer(nn.Module):
             # state_dict b
             state_dict_ = state_dict['b']
             
-            # store state_dict keys
-            keys = []
-            for key in state_dict_:
-                keys.append(key)
+            #             # store state_dict keys
+            #             keys = []
+            #             for key in state_dict_:
+            #                 keys.append(key)
 
-            # Iterate through the keys and replace them with their new name in the extanded architecture
-            for key in keys:
-                split_list = key.split('.')
-                n_layer = int(split_list[1]) 
-                split_list[1] = str(n_layer + 1)
-                new_key = ".".join(split_list)
-                state_dict_[new_key] = state_dict_[key]
-                if n_layer == 0:
-                    del state_dict_[key]
+            #             # Iterate through the keys and replace them with their new name in the extanded architecture
+            #             for key in keys:
+            #                 split_list = key.split('.')
+            #                 n_layer = int(split_list[1]) 
+            #                 split_list[1] = str(n_layer + 1)
+            #                 new_key = ".".join(split_list)
+            #                 state_dict_[new_key] = state_dict_[key]
+            #                 if n_layer == 0:
+            #                     del state_dict_[key]
 
             # state_dict b
             pretrained_dict = state_dict_
@@ -1478,6 +1490,7 @@ class MUNIT_Trainer(nn.Module):
             #                 self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
             print("Resume from iteration %d" % iterations, " without reinit schedulers")
             return 0
+        
         # IS HD
         if HD_ckpt:
             # Load discriminators HD
@@ -1505,7 +1518,7 @@ class MUNIT_Trainer(nn.Module):
         else:
             print('This situation is not Handled:(loading both ckpt from the fine tuning_')
 
-    def save(self, snapshot_dir, iterations, iterations_HD=0, save_HD=False):
+    def save(self, snapshot_dir, iterations, iterations_HD = 0, save_HD = False):
         """
         Save generators, discriminators, and optimizers
         

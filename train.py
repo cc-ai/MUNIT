@@ -336,7 +336,7 @@ while train_G2:
         
         # warmup is boolean value 
         # When warming up we push the upsampler towards learning a pixelwise upsampling operation
-        warmup = iteration_G2 < opts.warmup # We could set an hyperparameter here
+        warmup = False # iteration_G2 < opts.warmup # We could set an hyperparameter here
         
         images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
         mask_a, mask_b     = mask_a.cuda().detach(), mask_b.cuda().detach()
@@ -346,24 +346,24 @@ while train_G2:
 
         with Timer("Elapsed time in update: %f"):
             # Main training code
-            trainer.dis_HD_update(images_a, images_HD_a, images_b, images_HD_b, config, comet_exp,
-                                  lamda_dis = 1.0-torch.exp(torch.tensor(-0.00001*iteration_G2, device = 'cuda')))
+            trainer.dis_HD_update(images_HD_a, images_HD_b, config, comet_exp,
+                                  lamda_dis = 1.0-torch.exp(torch.tensor(-0.0001*iteration_G2, device = 'cuda')))
              
             if (iteration_G2 + 1)% config["ratio_disc_gen"] ==0:
                 trainer.gen_HD_update(
-                    images_a, images_HD_a, images_b, images_HD_b, 
+                    images_HD_a, images_HD_b, 
                     config, mask_a, mask_HD_a, mask_b, mask_HD_b, 
                     comet_exp,
                     warmup = warmup, 
-                    lambda_dis =  1.0-torch.exp(torch.tensor(-0.00001*iteration_G2, device = 'cuda'))
+                    lambda_dis =  1.0 - torch.exp(torch.tensor(-0.0001 * iteration_G2, device = 'cuda'))
                 )
             torch.cuda.synchronize()
 
         if (iteration_G2 + 1) % config["image_display_iter"] == 0:
             with torch.no_grad():
                 image_outputs = trainer.sample_HD(
-                                    train_display_images_a, train_display_images_a_HD, 
-                                    train_display_images_b, train_display_images_b_HD
+                                    train_display_images_a_HD, 
+                                    train_display_images_b_HD
                                 )
             write_2images(
                 image_outputs,

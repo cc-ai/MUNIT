@@ -230,6 +230,7 @@ class MsImageDisDeeper(nn.Module):
         self.downsample = nn.AvgPool2d(
             3, stride=2, padding=[1, 1], count_include_pad=False
         )
+        self.upsample = nn.Upsample(scale_factor=2, mode='nearest')
         self.cnns = nn.ModuleList()
         for _ in range(self.num_scales):
             self.cnns.append(self._make_net())
@@ -306,41 +307,72 @@ class MsImageDisDeeper(nn.Module):
             x = self.downsample(x)
         return outputs
 
-    def calc_dis_loss(self, input_fake, input_real, lambda_D = 0.0, is_HD=False):
-        # calculate the loss to train D
-        outs0 = self.forward(input_fake)
-        outs1 = self.forward(input_real)
-        loss = 0
+    def calc_dis_loss(self, input_fake, input_fake_HD, input_real_HD, lambda_D = 0.0):
+        # from_RGB = self.cnns[0][0]
+        # D1- = self.cnns[0][1:5]
         
-        if not is_HD: # Discriminator loss on the three different scale (~pretrained discriminator)
-            for it, (out0, out1) in enumerate(zip(outs0, outs1)):
-                if self.gan_type == "lsgan":
-                    loss += (1.0-lambda_D)*(torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2))
-                else:
-                    assert 0, "Unsupported GAN type: {}".format(self.gan_type)
-        else: # Discriminator loss of D1-oD0(x_HD) the three different scale (~pretrained discriminator)
+        # 3 x 256 x 256
+        input_real = self.downsample(input_real_HD)
+        
+        # 3 x 512 x 512
+        real_transition = lambda_D*x_HD + (1-lambda_D)*self.upsample(input_real)
+        
+        # Define g1_x and g0_g1_x
+        g1_x    = input_fake    # 3 x 256 x 256 
+        g0_g1_x = input_fake_HD # 3 x 512 x 512
+         
+        # G during the transition: 3 x 512 x 512
+        G_x = (1-lambda_D)*self.upsample(g1_x) + lambda_D*g0_g1_x
+        
+        # 64 x 128 x 128
+        input_D1_fake = lambda_D*self.D0(g0_g1_x) +(1-lambda_D)*(self.cnns[0][0](g1_x))
+        input_D1_real = lambda_D*self.D0(input_real_HD) +(1-lambda_D)*(self.cnns[0][0](input_real)) 
+        
+        # output of the discriminator D1oD0
+        out0 = self.cnns[0][1:5](input_D1_fake) 
+        out1 = self.cnns[0][1:5](input_D1_real)
+        
+        if self.gan_type == "lsgan":
+            loss = torch.mean((out0 - 1) ** 2) + torch.mean((out1 - 1) ** 2) # LSGAN
+            #  Discriminator loss on the two other different scales (~pretrained discriminator)
+            # 3 x 256 x 256
+            real_transition = self.downsample(real_transition)
+            G_x = self.downsample(G_x)
+            for it in range(1,3):
+                real_transition = self.downsample(real_transition)
+                G_x = self.downsample(G_x)
+                out0 = self.cnns[it](G_x)
+                out1 = self.cnns[it](real_transition)
+                loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2)
+        else:
+            assert 0, "Unsupported GAN type: {}".format(self.gan_type)    
             
-            loss = 
         return loss
 
-    def calc_gen_loss(self, input_fake, lambda_D = 0.0):
-        # calculate the loss to train G
-        outs0 = self.forward(input_fake)
+    def calc_gen_loss(self, input_fake, input_fake_HD, lambda_D = 0.0):
         loss = 0
-        for it, (out0) in enumerate(outs0):
-            if self.gan_type == "lsgan":
-                if it == 0:
-                    loss += (1.0-lambda_D)*torch.mean((out0 - 1) ** 2)  # LSGAN
-                else:
-                    loss += lambda_D* (torch.mean((out0 - 1) ** 2))
-                    
-            elif self.gan_type == "nsgan":
-                all1 = Variable(torch.ones_like(out0.data).cuda(), requires_grad=False)
-                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
-            else:
-                assert 0, "Unsupported GAN type: {}".format(self.gan_type)
-                
-        return loss        
+        # Define g1_x and g0_g1_x
+        g1_x    = input_fake     # 3 x 256 x 256 
+        g0_g1_x = input_fake_HD  # 3 x 512 x 512
+        # G during the transition: 3 x 512 x 512
+        G_x = (1-lambda_D) * self.upsample(g1_x) + lambda_D * g0_g1_x
+        # 64 x 128 x 128
+        input_D1_fake = lambda_D * self.D0(g0_g1_x) + (1-lambda_D) * (self.cnns[0][0](g1_x)) 
+        # output of the discriminator D1oD0
+        out0 = self.cnns[0][1:5](input_D1_fake)
+        if self.gan_type == "lsgan":
+            loss = torch.mean((out0 - 1) ** 2)
+            # 3 x 256 x 256
+            G_x = self.downsample(G_x)
+            for it in range(1,3):
+                G_x = self.downsample(G_x)
+                out0 = self.cnns[it](G_x)
+                loss += torch.mean((out0 - 1) ** 2)
+        else:
+            assert 0, "Unsupported GAN type: {}".format(self.gan_type)        
+        return loss   
+    
+    
 ##################################################################################
 # Generator
 ##################################################################################
