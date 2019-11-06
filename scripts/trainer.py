@@ -370,31 +370,31 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["domain_adv_w"] * self.domain_adv_loss
             + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
         )
-
-        if comet_exp is not None:
-            comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a)
-            comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b)
-            comet_exp.log_metric("loss_gen_recon_x_a", self.loss_gen_recon_x_a)
-            comet_exp.log_metric("loss_gen_recon_s_a", self.loss_gen_recon_s_a)
-            comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a)
-            comet_exp.log_metric("loss_gen_recon_x_b", self.loss_gen_recon_x_b)
-            comet_exp.log_metric("loss_gen_recon_s_b", self.loss_gen_recon_s_b)
-            comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b)
-            comet_exp.log_metric("loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a)
-            comet_exp.log_metric("loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b)
-            comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
-            if hyperparameters["vgg_w"] > 0:
-                comet_exp.log_metric("loss_gen_vgg_a", self.loss_gen_vgg_a)
-                comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b)
-            if hyperparameters["semantic_w"] > 0:
-                comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
-            if hyperparameters["domain_adv_w"] > 0:
-                comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
-            if synth:
-                comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth)
-
+        
         self.loss_gen_total.backward()
         self.gen_opt.step()
+        
+        if comet_exp is not None:
+            comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a.cpu().detach())
+            comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b.cpu().detach())
+            comet_exp.log_metric("loss_gen_recon_x_a", self.loss_gen_recon_x_a.cpu().detach())
+            comet_exp.log_metric("loss_gen_recon_s_a", self.loss_gen_recon_s_a.cpu().detach())
+            comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a.cpu().detach())
+            comet_exp.log_metric("loss_gen_recon_x_b", self.loss_gen_recon_x_b.cpu().detach())
+            comet_exp.log_metric("loss_gen_recon_s_b", self.loss_gen_recon_s_b.cpu().detach())
+            comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b.cpu().detach())
+            comet_exp.log_metric("loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a.cpu().detach())
+            comet_exp.log_metric("loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b.cpu().detach())
+            comet_exp.log_metric("loss_gen_total", self.loss_gen_total.cpu().detach())
+            if hyperparameters["vgg_w"] > 0:
+                comet_exp.log_metric("loss_gen_vgg_a", self.loss_gen_vgg_a.cpu().detach())
+                comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b.cpu().detach())
+            if hyperparameters["semantic_w"] > 0:
+                comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg.cpu().detach())
+            if hyperparameters["domain_adv_w"] > 0:
+                comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss.cpu().detach())
+            if synth:
+                comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth.cpu().detach())
 
     def compute_vgg_loss(self, vgg, img, target):
         """ 
@@ -750,16 +750,16 @@ class MUNIT_Trainer(nn.Module):
         self.loss_dis_a = self.dis_a.calc_dis_loss(x_ba.detach(), x_a)
         self.loss_dis_b = self.dis_b.calc_dis_loss(x_ab.detach(), x_b)
 
-        if comet_exp is not None:
-            comet_exp.log_metric("loss_dis_b", self.loss_dis_b)
-            comet_exp.log_metric("loss_dis_a", self.loss_dis_a)
-
         self.loss_dis_total = (
             hyperparameters["gan_w"] * self.loss_dis_a
             + hyperparameters["gan_w"] * self.loss_dis_b
         )
         self.loss_dis_total.backward()
         self.dis_opt.step()
+        
+        if comet_exp is not None:
+            comet_exp.log_metric("loss_dis_b", self.loss_dis_b.cpu().detach())
+            comet_exp.log_metric("loss_dis_a", self.loss_dis_a.cpu().detach())
 
     def domain_classifier_update(self, x_a, x_b, hyperparameters, comet_exp=None):
         """
@@ -791,13 +791,13 @@ class MUNIT_Trainer(nn.Module):
         self.domain_class_loss, out_a, out_b = self.compute_domain_adv_loss(
             c_a, c_b, compute_accuracy=True,minimize=True)
 
-        if comet_exp is not None:
-            comet_exp.log_metric("domain_class_loss", self.domain_class_loss)
-            comet_exp.log_metric("probability A being identified as A", out_a)
-            comet_exp.log_metric("probability B being identified as B", out_b)
-
         self.domain_class_loss.backward()
         self.dann_opt.step()
+        
+        if comet_exp is not None:
+            comet_exp.log_metric("domain_class_loss", self.domain_class_loss.cpu().detach())
+            comet_exp.log_metric("probability A being identified as A", out_a.cpu().detach())
+            comet_exp.log_metric("probability B being identified as B", out_b.cpu().detach())
 
     def update_learning_rate(self):
         """ 
