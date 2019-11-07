@@ -310,23 +310,23 @@ class MsImageDisDeeper(nn.Module):
     def calc_dis_loss(self, input_fake, input_fake_HD, input_real_HD, lambda_D = 0.0):
         # from_RGB = self.cnns[0][0]
         # D1- = self.cnns[0][1:5]
-        
+        loss = 0
         # 3 x 256 x 256
         input_real = self.downsample(input_real_HD)
         
         # 3 x 512 x 512
-        real_transition = lambda_D*x_HD + (1-lambda_D)*self.upsample(input_real)
+        real_transition = lambda_D * input_real_HD + (1-lambda_D) * self.upsample(input_real)
         
         # Define g1_x and g0_g1_x
         g1_x    = input_fake    # 3 x 256 x 256 
         g0_g1_x = input_fake_HD # 3 x 512 x 512
          
         # G during the transition: 3 x 512 x 512
-        G_x = (1-lambda_D)*self.upsample(g1_x) + lambda_D*g0_g1_x
+        G_x = lambda_D * g0_g1_x + (1-lambda_D) * self.upsample(g1_x)
         
         # 64 x 128 x 128
-        input_D1_fake = lambda_D*self.D0(g0_g1_x) +(1-lambda_D)*(self.cnns[0][0](g1_x))
-        input_D1_real = lambda_D*self.D0(input_real_HD) +(1-lambda_D)*(self.cnns[0][0](input_real)) 
+        input_D1_fake = lambda_D * self.D0(g0_g1_x)       + (1 - lambda_D) * (self.cnns[0][0](g1_x))
+        input_D1_real = lambda_D * self.D0(input_real_HD) + (1 - lambda_D) * (self.cnns[0][0](input_real)) 
         
         # output of the discriminator D1oD0
         out0 = self.cnns[0][1:5](input_D1_fake) 
@@ -344,6 +344,28 @@ class MsImageDisDeeper(nn.Module):
                 out0 = self.cnns[it](G_x)
                 out1 = self.cnns[it](real_transition)
                 loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2)
+        elif self.gan_type == "nsgan":
+            all0 = Variable(torch.zeros_like(out0.data).cuda(), requires_grad=False)
+            all1 = Variable(torch.ones_like(out1.data).cuda(), requires_grad=False)
+            loss += torch.mean(
+                F.binary_cross_entropy(F.sigmoid(out0), all0)
+                + F.binary_cross_entropy(F.sigmoid(out1), all1)
+            )
+            #  Discriminator loss on the two other different scales (~pretrained discriminator)
+            # 3 x 256 x 256
+            real_transition = self.downsample(real_transition)
+            G_x = self.downsample(G_x)
+            for it in range(1,3):
+                real_transition = self.downsample(real_transition)
+                G_x = self.downsample(G_x)
+                out0 = self.cnns[it](G_x)
+                out1 = self.cnns[it](real_transition)
+                all0 = Variable(torch.zeros_like(out0.data).cuda(), requires_grad=False)
+                all1 = Variable(torch.ones_like(out1.data).cuda(), requires_grad=False)
+                loss += torch.mean(
+                    F.binary_cross_entropy(F.sigmoid(out0), all0)
+                    + F.binary_cross_entropy(F.sigmoid(out1), all1)
+                )
         else:
             assert 0, "Unsupported GAN type: {}".format(self.gan_type)    
             
@@ -368,6 +390,17 @@ class MsImageDisDeeper(nn.Module):
                 G_x = self.downsample(G_x)
                 out0 = self.cnns[it](G_x)
                 loss += torch.mean((out0 - 1) ** 2)
+        elif self.gan_type == "nsgan":
+            all1 = Variable(torch.ones_like(out0.data).cuda(), requires_grad=False)
+            loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
+            # 3 x 256 x 256
+            G_x = self.downsample(G_x)
+            for it in range(1,3):
+                G_x = self.downsample(G_x)
+                out0 = self.cnns[it](G_x)
+                all1 = Variable(torch.ones_like(out0.data).cuda(), requires_grad=False)
+                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
+            
         else:
             assert 0, "Unsupported GAN type: {}".format(self.gan_type)        
         return loss   

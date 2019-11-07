@@ -74,8 +74,11 @@ class MUNIT_Trainer(nn.Module):
         beta1 = hyperparameters["beta1"]
         beta2 = hyperparameters["beta2"]
         
-        dis_HD_params = list(self.dis_a.cnns[0].parameters()) + \
-                        list(self.dis_b.cnns[0].parameters())
+        dis_HD_params = list(self.dis_a.D0.parameters()) + \
+                        list(self.dis_b.D0.parameters())
+        
+                        # list(self.dis_a.D0.parameters()) + \
+                        # list(self.dis_b.D0.parameters())
 
         if self.gen_state == 1:
             G1_param =  list(self.gen.enc_style.parameters())    + \
@@ -1038,7 +1041,7 @@ class MUNIT_Trainer(nn.Module):
         s_b1 = Variable(self.s_b)
         s_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
-        x_a_recon_HD, x_b_recon_HD, x_ab_HD, x_ba_HD, x_ab_, x_ba_ = [], [], [], [], [], []
+        x_a_recon_HD, x_b_recon_HD, x_ab_HD_, x_ba_HD_, x_ab_, x_ba_ = [], [], [], [], [], []
 
         if self.gen_state == 1:
             for i in range(x_a.size(0)):
