@@ -586,49 +586,56 @@ class MUNIT_Trainer(nn.Module):
         self.gen_opt_HD.step()
 
     def gen_global_update(
-        self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp=None, synth=False
+        self, x_a_HD, x_b_HD, hyperparameters, mask_a, mask_a_HD, mask_b, mask_b_HD, comet_exp=None, synth=False
     ):
+        # Regular downsampling
+        x_a = self.dis_a.downsample(x_a_HD) 
+        x_b = self.dis_b.downsample(x_b_HD)
+        
         self.gen_opt_global.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
         
         if self.gen_state == 1:
+            
             # encode
             c_a, s_a_prime = self.gen.encode(x_a, 1)
             c_b, s_b_prime = self.gen.encode(x_b, 2)
 
             # decode (within domain)
-            x_a_recon,embedding_x_a = self.gen.decode(c_a, s_a_prime, 1, return_content=True)
-            x_b_recon,embedding_x_b = self.gen.decode(c_b, s_b_prime, 2, return_content=True)
+            x_a_recon,embedding_x_a = self.gen.decode(c_a, s_a_prime, 1, return_content = True)
+            x_b_recon,embedding_x_b = self.gen.decode(c_b, s_b_prime, 2, return_content = True)
 
             # Downsample
             Downsampled_x_a = self.gen.localDown(x_a_HD)
             Downsampled_x_b = self.gen.localDown(x_b_HD)
 
             # Upsample
-            x_a_recon_HD = self.gen.localUp(embedding_x_a+Downsampled_x_a)
-            x_b_recon_HD = self.gen.localUp(embedding_x_b+Downsampled_x_b)
+            x_a_recon_HD = self.gen.localUp(embedding_x_a + Downsampled_x_a)
+            x_b_recon_HD = self.gen.localUp(embedding_x_b + Downsampled_x_b)
 
             # decode (cross domain)
             if self.guided == 1:
-                x_ba, embedding_x_ba = self.gen.decode(c_b, s_a_prime, 1, return_content=True)
-                x_ab, embedding_x_ab = self.gen.decode(c_a, s_b_prime, 2, return_content=True)
+                x_ba, embedding_x_ba = self.gen.decode(c_b, s_a_prime, 1, return_content = True)
+                x_ab, embedding_x_ab = self.gen.decode(c_a, s_b_prime, 2, return_content = True)
             else:
                 print("self.guided unknown value:", self.guided)
                 
             # Upsample
-            x_ab_HD = self.gen.localUp(embedding_x_ab+Downsampled_x_a)
-            x_ba_HD = self.gen.localUp(embedding_x_ba+Downsampled_x_b)
+            x_ab_HD = self.gen.localUp(embedding_x_ab + Downsampled_x_a)
+            x_ba_HD = self.gen.localUp(embedding_x_ba + Downsampled_x_b)
 
             # encode again
             c_b_recon, s_a_recon = self.gen.encode(x_ba, 1)
             c_a_recon, s_b_recon = self.gen.encode(x_ab, 2)
+            
             # decode again (if needed)
             x_aba = (
                 self.gen.decode(c_a_recon, s_a_prime, 1)
                 if hyperparameters["recon_x_cyc_w"] > 0
                 else None
             )
+
             x_bab = (
                 self.gen.decode(c_b_recon, s_b_prime, 2)
                 if hyperparameters["recon_x_cyc_w"] > 0
@@ -673,14 +680,10 @@ class MUNIT_Trainer(nn.Module):
             )
 
         # GAN loss
-        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ba))
-        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ab))
+        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba, x_ba_HD, lambda_D = 0)
+        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab, x_ab_HD, lambda_D = 0)
         
-        # GAN loss HD
-        self.loss_gen_adv_a_HD = self.dis_a.calc_gen_loss(x_ba_HD)
-        self.loss_gen_adv_b_HD = self.dis_b.calc_gen_loss(x_ab_HD)
-        
-        # domain-invariant perceptual loss
+        # Domain-invariant perceptual loss
         self.loss_gen_vgg_a = (
             self.compute_vgg_loss(self.vgg, x_ba, x_b)
             if hyperparameters["vgg_w"] > 0
@@ -692,7 +695,7 @@ class MUNIT_Trainer(nn.Module):
             else 0
         )
 
-        # semantic-segmentation loss
+        # Semantic-segmentation loss
         self.loss_sem_seg = (
             self.compute_semantic_seg_loss(x_a.squeeze(), x_ab.squeeze(), mask_a)
             + self.compute_semantic_seg_loss(x_b.squeeze(), x_ba.squeeze(), mask_b)
@@ -702,7 +705,7 @@ class MUNIT_Trainer(nn.Module):
         # Domain adversarial loss (c_a and c_b are swapped because we want the feature to be less informative
         # minmax (accuracy but max min loss)
         self.domain_adv_loss = (
-            self.compute_domain_adv_loss(c_a,c_b, compute_accuracy=False, minimize=False)
+            self.compute_domain_adv_loss(c_a, c_b, compute_accuracy=False, minimize=False)
             if hyperparameters["domain_adv_w"] > 0
             else 0
         )
@@ -713,8 +716,10 @@ class MUNIT_Trainer(nn.Module):
 
         # total loss
         self.loss_gen_total = (
-            hyperparameters["gan_w"] * self.loss_gen_adv_a
-            + hyperparameters["gan_w"] * self.loss_gen_adv_b
+            hyperparameters["gan_w_HD"]   * self.loss_gen_adv_a
+            + hyperparameters["gan_w_HD"] * self.loss_gen_adv_b
+            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_a_HD
+            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_b_HD
             + hyperparameters["recon_x_w"] * self.loss_gen_recon_x_a
             + hyperparameters["recon_s_w"] * self.loss_gen_recon_s_a
             + hyperparameters["recon_c_w"] * self.loss_gen_recon_c_a
@@ -728,10 +733,6 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["semantic_w"] * self.loss_sem_seg
             + hyperparameters["domain_adv_w"] * self.domain_adv_loss
             + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
-            + hyperparameters["gan_w_HD"] * self.loss_gen_adv_a_HD
-            + hyperparameters["gan_w_HD"] * self.loss_gen_adv_b_HD
-            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_a_HD
-            + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_b_HD
         )
 
         if comet_exp is not None:
@@ -755,8 +756,6 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss)
             if synth:
                 comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth)
-            comet_exp.log_metric("loss_gen_adv_a_HD", self.loss_gen_adv_a_HD)
-            comet_exp.log_metric("loss_gen_adv_b_HD", self.loss_gen_adv_b_HD)
             comet_exp.log_metric("loss_gen_recon_x_a_HD", self.loss_gen_recon_x_a_HD)
             comet_exp.log_metric("loss_gen_recon_x_b_HD", self.loss_gen_recon_x_b_HD)
             comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
@@ -1211,12 +1210,13 @@ class MUNIT_Trainer(nn.Module):
         Update the weights of the discriminator
         
         Arguments:
-            x_a {torch.Tensor} -- Image from domain A after transform in tensor format
-            x_b {torch.Tensor} -- Image from domain B after transform in tensor format
+            x_a_HD {torch.Tensor} -- Image from domain A after transform in tensor format
+            x_b_HD {torch.Tensor} -- Image from domain B after transform in tensor format
             hyperparameters {dictionnary} -- dictionnary with all hyperparameters 
-        
+            
         Keyword Arguments:
-            comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})        
+            comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None}) 
+            lamda_dis {float} -- Smoothing parameter going from 0 to 1
         """
         x_a = self.dis_a.downsample(x_a_HD) # Regular downsampling function
         x_b = self.dis_b.downsample(x_b_HD) # Regular downsampling function
@@ -1264,8 +1264,21 @@ class MUNIT_Trainer(nn.Module):
 
     def dis_global_update(self, x_a, x_a_HD, x_b, x_b_HD, hyperparameters, comet_exp=None):
         """
-        Update the weights of the global discriminator        
+        Update the weights of the global discriminator
+        
+        Arguments:
+            x_a_HD {torch.Tensor} -- Image from domain A after transform in tensor format
+            x_b_HD {torch.Tensor} -- Image from domain B after transform in tensor format
+            hyperparameters {dictionnary} -- dictionnary with all hyperparameters 
+            
+        Keyword Arguments:
+            comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None}) 
+            lamda_dis {float} -- Smoothing parameter going from 0 to 1
         """
+        
+        x_a = self.dis_a.downsample(x_a_HD) # Regular downsampling function
+        x_b = self.dis_b.downsample(x_b_HD) # Regular downsampling function
+        
         self.dis_opt_global.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -1276,8 +1289,8 @@ class MUNIT_Trainer(nn.Module):
             c_b, s_b_prime = self.gen.encode(x_b, 2)
             # decode (cross domain)
             if self.guided == 1:
-                x_ba, embedding_xba = self.gen.decode(c_b, s_a_prime, 1, return_content =True)
-                x_ab, embedding_xab = self.gen.decode(c_a, s_b_prime, 2, return_content =True)
+                x_ba, embedding_xba = self.gen.decode(c_b, s_a_prime, 1, return_content = True)
+                x_ab, embedding_xab = self.gen.decode(c_a, s_b_prime, 2, return_content = True)
             else:
                 print("self.guided unknown value:", self.guided)
         else:
@@ -1292,26 +1305,16 @@ class MUNIT_Trainer(nn.Module):
         upsampled_xba = self.gen.localUp(embedding_xba+Downsampled_x_b)
         
         # Dis_HD loss
-        self.loss_dis_HD_a = self.dis_a.calc_dis_loss(upsampled_xba.detach(),x_a_HD) #x_ba.detach(), x_a)
-        self.loss_dis_HD_b = self.dis_b.calc_dis_loss(upsampled_xab.detach(),x_b_HD) #x_ab.detach(), x_b)
+        # input_fake, input_fake_HD, input_real_HD, lambda_D =
+        self.loss_dis_HD_a = self.dis_a.calc_dis_loss(x_ba, upsampled_xba.detach(), x_a_HD, lambda_D = lamda_dis) 
+        self.loss_dis_HD_b = self.dis_b.calc_dis_loss(x_ab, upsampled_xab.detach(), x_b_HD, lambda_D = lamda_dis)
 
-        # D loss
-        self.loss_dis_a = self.dis_a.calc_dis_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ba).detach(), \
-                                                   nn.Upsample(scale_factor=2, mode='nearest')(x_a))
-        self.loss_dis_b = self.dis_b.calc_dis_loss(nn.Upsample(scale_factor=2, mode='nearest')(x_ab).detach(), \
-                                                   nn.Upsample(scale_factor=2, mode='nearest')(x_b))
-        
         if comet_exp is not None:
-            
-            comet_exp.log_metric("loss_dis_b", self.loss_dis_b)
-            comet_exp.log_metric("loss_dis_a", self.loss_dis_a)
             comet_exp.log_metric("loss_dis_HD_b", self.loss_dis_HD_b)
             comet_exp.log_metric("loss_dis_HD_a", self.loss_dis_HD_a)
 
         self.loss_dis_total = (
-            hyperparameters["gan_w"] * self.loss_dis_a
-            + hyperparameters["gan_w"] * self.loss_dis_b
-            + hyperparameters["gan_w_HD"] * self.loss_dis_HD_a
+            hyperparameters["gan_w_HD"] * self.loss_dis_HD_a
             + hyperparameters["gan_w_HD"] * self.loss_dis_HD_b
         )
         self.loss_dis_total.backward()
