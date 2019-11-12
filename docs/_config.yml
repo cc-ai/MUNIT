@@ -1,4 +1,10 @@
-url: "http://pixyll.com"
+# Site settings
+title: MUNIT  
+email: cosne.gautier@gmail.com
+author: Cosne Gautier
+description: ""
+baseurl: "/gcosne/Pixyll"
+url: "https://cc-ai.github.io/MUNIT/"
 
 # Build settings
 markdown: kramdown
