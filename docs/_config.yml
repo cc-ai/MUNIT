@@ -1,1 +1,6 @@
-remote_theme: gcosne/pixyll
+url: "http://pixyll.com"
+
+# Build settings
+markdown: kramdown
+permalink: pretty
+paginate: 3
