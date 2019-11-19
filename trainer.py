@@ -511,8 +511,8 @@ class MUNIT_Trainer(nn.Module):
             x_ba_cyc = self.dis_b.downsample(x_ba_HD)
             
             # Downsample the fake ab
-            Downsampled_x_ab_HD = self.dis_a.downsample(x_ab_HD) 
-            Downsampled_x_ba_HD = self.dis_b.downsample(x_ba_HD)
+            Downsampled_x_ab_HD = self.gen.localDown(x_ab_HD) 
+            Downsampled_x_ba_HD = self.gen.localDown(x_ba_HD)
             
             # encode x_ab_HD_/2
             c_ab_cyc, s_ab_cyc_prime = self.gen.encode(x_ab_cyc, 2)
