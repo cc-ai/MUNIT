@@ -270,7 +270,7 @@ while train_G1:
 # In the case we want to train MUNIT's pix2pixHD-like extension
             
 # Instantiate dataloader for G2
-train_G2 = False
+train_G2 = True
 
 # Use HD dataloader
 train_loader_a_w_mask = get_data_loader_mask_and_im_HD(
@@ -333,6 +333,7 @@ while train_G2:
     for it, ((images_HD_a, mask_HD_a, images_a, mask_a), (images_HD_b, mask_HD_b, images_b, mask_b)) in enumerate(
         zip(train_loader_a_w_mask, train_loader_b_w_mask)
     ):
+        lambda_dis = torch.min(torch.tensor(1/opts.lambda_param*iteration_G2, device = 'cuda'),1)
         trainer.update_learning_rate_HD()
         
         # warmup is boolean value 
@@ -348,16 +349,16 @@ while train_G2:
         with Timer("Elapsed time in update: %f"):
             # Main training code
             trainer.dis_HD_update(images_HD_a, images_HD_b, config, comet_exp,
-                                  lamda_dis = 1.0-torch.exp(torch.tensor(-1/opts.lambda_param*iteration_G2, device = 'cuda'))
-                                 )
-             
+                                  lamda_dis = lambda_dis)
+            #1.0-torch.exp(torch.tensor(-1/opts.lambda_param*iteration_G2, device = 'cuda'))
+            
             if (iteration_G2 + 1)% config["ratio_disc_gen"] ==0:
                 trainer.gen_HD_update(
                     images_HD_a, images_HD_b, 
                     config, mask_a, mask_HD_a, mask_b, mask_HD_b, 
                     comet_exp,
                     warmup = warmup, 
-                    lambda_dis =  1.0 - torch.exp(torch.tensor(-1/opts.lambda_param* iteration_G2, device = 'cuda'))
+                    lambda_dis = lambda_dis
                 )
             torch.cuda.synchronize()
 
@@ -366,7 +367,7 @@ while train_G2:
                 image_outputs = trainer.sample_HD(
                                     train_display_images_a_HD, 
                                     train_display_images_b_HD,
-                                    lambda_dis =  1.0 - torch.exp(torch.tensor(-1/opts.lambda_param * iteration_G2, device = 'cuda'))
+                                    lambda_dis =  lambda_dis
                                 )
             write_2images(
                 image_outputs,

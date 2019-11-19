@@ -95,22 +95,6 @@ class MUNIT_Trainer(nn.Module):
         self.apply(weights_init(hyperparameters["init"]))
         self.dis_a.apply(weights_init("gaussian"))
         self.dis_b.apply(weights_init("gaussian"))
-
-        #         if not self.train_global:
-        #             self.dis_opt = torch.optim.Adam(
-        #                 [p for p in dis_params if p.requires_grad],
-        #                 lr=lr,
-        #                 betas=(beta1, beta2),
-        #                 weight_decay=hyperparameters["weight_decay"],
-        #             )
-        #             self.gen_opt = torch.optim.Adam(
-        #                 [p for p in G1_param if p.requires_grad],
-        #                 lr=lr,
-        #                 betas=(beta1, beta2),
-        #                 weight_decay=hyperparameters["weight_decay"],
-        #             )
-        #             self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters)
-        #             self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters)
         
         # Load HD Discriminator if needed
         if self.train_global or self.train_G2_only:
@@ -515,24 +499,40 @@ class MUNIT_Trainer(nn.Module):
                 x_ab, embedding_x_ab = self.gen.decode(c_a, s_b_prime, 2, return_content=True)
             else:
                 print("self.guided unknown value:", self.guided)
+                
             # Upsample
             x_ab_HD = self.gen.localUp(embedding_x_ab + Downsampled_x_a)
             x_ba_HD = self.gen.localUp(embedding_x_ba + Downsampled_x_b)
+            
+            # Cycle HD
+            
+            # Regular downsampling
+            x_ab_cyc = self.dis_a.downsample(x_ab_HD) 
+            x_ba_cyc = self.dis_b.downsample(x_ba_HD)
+            
+            # Downsample the fake ab
+            Downsampled_x_ab_HD = self.dis_a.downsample(x_ab_HD) 
+            Downsampled_x_ba_HD = self.dis_b.downsample(x_ba_HD)
+            
+            # encode x_ab_HD_/2
+            c_ab_cyc, s_ab_cyc_prime = self.gen.encode(x_ab_cyc, 2)
+            c_ba_cyc, s_ba_cyc_prime = self.gen.encode(x_ba_cyc, 1)
 
-            # # encode again
-            # c_b_recon, s_a_recon = self.gen.encode(x_ba, 1)
-            # c_a_recon, s_b_recon = self.gen.encode(x_ab, 2)
-            # # decode again (if needed)
-            # x_aba = (
-            #     self.gen.decode(c_a_recon, s_a_prime, 1)
-            #     if hyperparameters["recon_x_cyc_w"] > 0
-            #     else None
-            # )
-            # x_bab = (
-            #     self.gen.decode(c_b_recon, s_b_prime, 2)
-            #     if hyperparameters["recon_x_cyc_w"] > 0
-            #     else None
-            # )
+            # decode (cross domain)
+            if self.guided == 1:
+                x_bab_cyc, embedding_x_bab_cyc = self.gen.decode(c_ab_cyc, s_ba_cyc_prime, 1, return_content=True)
+                x_aba_cyc, embedding_x_aba_cyc = self.gen.decode(c_ba_cyc, s_ba_cyc_prime, 2, return_content=True)
+            else:
+                print("self.guided unknown value:", self.guided)
+                
+            # Downsample
+            Downsampled_x_ab_cyc = self.gen.localDown(x_ab_HD)
+            Downsampled_x_ba_cyc = self.gen.localDown(x_ba_HD)
+
+            # decode again (if needed)
+            x_aba_HD = self.gen.localUp(embedding_x_aba_cyc + Downsampled_x_ab_HD)
+            x_bab_HD = self.gen.localUp(embedding_x_bab_cyc + Downsampled_x_ba_HD)
+             
         else:
             print("self.gen_state unknown value:", self.gen_state)
         
@@ -552,14 +552,37 @@ class MUNIT_Trainer(nn.Module):
         # GAN loss
         self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba, x_ba_HD, lambda_D = lambda_dis)
         self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab, x_ab_HD, lambda_D = lambda_dis)
-
-        # # # semantic-segmentation loss
-        # self.loss_sem_seg = (
-        #     self.compute_semantic_seg_loss(x_a.squeeze(), x_ab.squeeze(), mask_a)
-        #     + self.compute_semantic_seg_loss(x_b.squeeze(), x_ba.squeeze(), mask_b)
-        #     if hyperparameters["semantic_w"] > 0
-        #     else 0
-        # )
+        
+        # Recon loss
+        if self.recon_mask:
+            self.loss_gen_cycrecon_x_a_HD = (
+                self.recon_criterion_mask(x_aba_HD, x_a_HD, mask_a_HD)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
+            self.loss_gen_cycrecon_x_b_HD = (
+                self.recon_criterion_mask(x_bab_HD, x_b_HD, mask_b_HD)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
+        else:
+            self.loss_gen_cycrecon_x_a_HD = (
+                self.recon_criterion(x_aba_HD, x_a_HD)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
+            self.loss_gen_cycrecon_x_b_HD = (
+                self.recon_criterion(x_bab_HD, x_b_HD)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else 0
+            )
+        # # semantic-segmentation loss
+        self.loss_sem_seg = (
+            self.compute_semantic_seg_loss(x_a_HD.squeeze(), x_ab_HD.squeeze(), mask_a_HD)
+            + self.compute_semantic_seg_loss(x_b_HD.squeeze(), x_ba_HD.squeeze(), mask_b_HD)
+            if hyperparameters["semantic_w"] > 0
+            else 0
+        )
 
         # total loss
         self.loss_gen_total = (
@@ -569,19 +592,26 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_b
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_ab 
             + hyperparameters["recon_x_w_HD"] * self.loss_gen_recon_x_ba
+            + hyperparameters["semantic_w"] * self.loss_sem_seg
+            + hyperparameters["recon_x_cyc_w"] * self.loss_gen_cycrecon_x_a_HD
+            + hyperparameters["recon_x_cyc_w"] * self.loss_gen_cycrecon_x_b_HD
         )
-        #            + hyperparameters["semantic_w"] * self.loss_sem_seg
+                    
 
         if comet_exp is not None:
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a)
             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b)
             comet_exp.log_metric("loss_gen_recon_x_a_HD", self.loss_gen_recon_x_a)
             comet_exp.log_metric("loss_gen_recon_x_b_HD", self.loss_gen_recon_x_b)
+            comet_exp.log_metric("loss_gen_cycrecon_x_a_HD", self.loss_gen_cycrecon_x_a_HD)
+            comet_exp.log_metric("loss_gen_cycrecon_x_b_HD", self.loss_gen_cycrecon_x_b_HD)
             comet_exp.log_metric("loss_gen_total", self.loss_gen_total)
+            if hyperparameters["semantic_w"] > 0:
+                comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg)
             if warmup:
                 comet_exp.log_metric("loss_gen_recon_x_ab", self.loss_gen_recon_x_ab)
                 comet_exp.log_metric("loss_gen_recon_x_ba", self.loss_gen_recon_x_ba)
-
+            comet_exp.log_metric("lambda_dis", lambda_dis)
         self.loss_gen_total.backward()
         self.gen_opt_HD.step()
 
