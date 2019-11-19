@@ -866,6 +866,9 @@ class MUNIT_Trainer(nn.Module):
         # denorm
         img1_denorm = (img1 + 1) / 2.0
         img2_denorm = (img2 + 1) / 2.0
+        
+        _, newsize, _ = img1_denorm.shape
+        
         # norm for semantic seg network
         input_transformed1 = seg_transform()(img1_denorm).unsqueeze(0)
         input_transformed2 = seg_transform()(img2_denorm).unsqueeze(0)
@@ -875,11 +878,11 @@ class MUNIT_Trainer(nn.Module):
         )
         output = self.segmentation_model(input_transformed2)
         # Resize mask to the size of the image
-        mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+        mask1 = torch.nn.functional.interpolate(mask, size=(newsize, newsize))
         mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
         # we want the masked region to be labeled as unknown (19 is not an existing label)
         target_with_mask = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
-        mask2 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+        mask2 = torch.nn.functional.interpolate(mask, size=(newsize, newsize))
         mask_tensor = torch.tensor(mask2, dtype=torch.float).cuda()
         output_with_mask = torch.mul(1 - mask_tensor, output)
         # cat the mask as to the logits (loss=0 over the masked region)
