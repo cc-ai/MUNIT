@@ -9,7 +9,6 @@ comet_exp = Experiment()
 from utils import (
     get_all_data_loaders,
     prepare_sub_folder,
-    write_html,
     write_loss,
     get_config,
     write_2images,
@@ -37,7 +36,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--config",
     type=str,
-    default="configs/edges2handbags_folder.yaml",
+    default="../configs/config_256.yaml",
     help="Path to the config file.",
 )
 parser.add_argument("--output_path", type=str, default=".", help="outputs path")
@@ -51,7 +50,6 @@ if comet_exp is not None:
     comet_exp.log_parameter("git_hash", opts.git_hash)
     
 cudnn.benchmark = True
-
 # Load experiment setting
 config = get_config(opts.config)
 max_iter = config["max_iter"]
@@ -61,15 +59,19 @@ config["vgg_model_path"] = opts.output_path
 # Setup model and data loader
 if opts.trainer == "MUNIT":
     trainer = MUNIT_Trainer(config)
+
 elif opts.trainer == "UNIT":
     trainer = UNIT_Trainer(config)
 else:
     sys.exit("Only support MUNIT|UNIT")
 trainer.cuda()
 
+print(config)
+
 train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(
     config
 )
+
 if config["semantic_w"] > 0:
     train_loader_a_w_mask = get_data_loader_mask_and_im(
         config["data_list_train_a"],
@@ -219,23 +221,21 @@ else:
             trainer.update_learning_rate()
             images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
             mask_a, mask_b = mask_a.cuda().detach(), mask_b.cuda().detach()
-
             with Timer("Elapsed time in update: %f"):
                 # Main training code
                 trainer.dis_update(images_a, images_b, config, comet_exp)
                 
-                if (iterations + 1)% config["ratio_disc_gen"] ==0:
+                if (iterations + 1) % config["ratio_disc_gen"] == 0:
                     trainer.gen_update(
                         images_a, images_b, config, mask_a, mask_b, comet_exp
                     )
+                # Train the cross domain classifier
                 if config["domain_adv_w"] > 0:
                     trainer.domain_classifier_update(
                         images_a, images_b, config, comet_exp
                     )
                 torch.cuda.synchronize()
 
-        
-            
             # If the number of iteration match the synthetic frequency
             # We sample one example of the synthetic paired dataset
             if config["synthetic_frequency"] > 0:
@@ -249,7 +249,7 @@ else:
                         # Main training code
                         trainer.dis_update(images_a, images_b, config, comet_exp)
                         trainer.gen_update(
-                            images_a, images_b, config, mask_a, mask_b, comet_exp,True
+                            images_a, images_b, config, mask_a, mask_b, comet_exp,synth=True
                         )
                 
             # Write images

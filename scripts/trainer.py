@@ -33,13 +33,16 @@ class MUNIT_Trainer(nn.Module):
         self.guided = hyperparameters["guided"]
         self.newsize = hyperparameters["crop_image_height"]
         self.semantic_w = hyperparameters["semantic_w"] > 0
+
         self.recon_mask = hyperparameters["recon_mask"] == 1
+        self.check_alignment = hyperparameters["check_alignment"] == 1
+
+        self.full_adaptation =  hyperparameters["full_adaptation"] == 1 
         self.dann_scheduler = None
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif = hyperparameters["domain_adv_w"] > 0
         else:
             self.domain_classif = False
-
         if self.gen_state == 0:
             # Initiate the networks
             self.gen_a = AdaINGen(
@@ -59,6 +62,7 @@ class MUNIT_Trainer(nn.Module):
         self.dis_a = MsImageDis(
             hyperparameters["input_dim_a"], hyperparameters["dis"]
         )  # discriminator for domain a
+
         self.dis_b = MsImageDis(
             hyperparameters["input_dim_b"], hyperparameters["dis"]
         )  # discriminator for domain b
@@ -67,12 +71,15 @@ class MUNIT_Trainer(nn.Module):
 
         # fix the noise used in sampling
         display_size = int(hyperparameters["display_size"])
+        print(self.style_dim)
+        print(display_size)
         self.s_a = torch.randn(display_size, self.style_dim, 1, 1).cuda()
-        self.s_b = torch.randn(display_size, self.style_dim, 1, 1).cuda()
 
+        self.s_b = torch.randn(display_size, self.style_dim, 1, 1).cuda()
         # Setup the optimizers
         beta1 = hyperparameters["beta1"]
         beta2 = hyperparameters["beta2"]
+
         dis_params = list(self.dis_a.parameters()) + list(self.dis_b.parameters())
 
         if self.gen_state == 0:
@@ -136,11 +143,11 @@ class MUNIT_Trainer(nn.Module):
 
     def recon_criterion(self, input, target):
         """
-        Compute pixelwise L1 loss between two images input and target
+        Compute pixelwise L1 loss between two images input and target 
         
         Arguments:
-            input {torch.Tensor} -- Image tensor
-            target {torch.Tensor} -- Image tensor
+            input {torch.Tensor} -- Image tensor (original image such as x_a)
+            target {torch.Tensor} -- Image tensor (after cycle-translation image x_aba)
         
         Returns:
             torch.Float -- pixelwise L1 loss
@@ -288,7 +295,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
         
         # Synthetic reconstruction loss
-        if synth:
+        if self.check_alignment:
             print('mask_b.shape', mask_b.shape)
             # Define the mask of exact same pixel among a pair
             mask_alignment = (torch.sum(torch.abs(x_a - x_b), 1) == 0).unsqueeze(0)
@@ -297,7 +304,7 @@ class MUNIT_Trainer(nn.Module):
             
         
         self.loss_gen_recon_synth = self.recon_criterion_mask(x_ab, x_b, 1-mask_alignment) + \
-                                    self.recon_criterion_mask(x_ba, x_a, 1-mask_alignment)  if synth else 0
+                                    self.recon_criterion_mask(x_ba, x_a, 1-mask_alignment)  if self.check_alignment else 0
         
         if self.recon_mask:
             self.loss_gen_cycrecon_x_a = (
@@ -454,9 +461,9 @@ class MUNIT_Trainer(nn.Module):
         else:
             return loss
 
-    def compute_semantic_seg_loss(self, img1, img2, mask):
+    def compute_semantic_seg_loss(self, img1, img2, mask=None):
         """ 
-        Compute semantic segmentation loss between two images on the unmasked region
+        Compute semantic segmentation loss between two images on the unmasked region or in the entire image
         
         Arguments:
             img1 {torch.Tensor} -- Image from domain A after transform in tensor format
@@ -477,21 +484,26 @@ class MUNIT_Trainer(nn.Module):
             self.segmentation_model(input_transformed1).squeeze().max(0)[1].unsqueeze(0)
         )
         output = self.segmentation_model(input_transformed2)
-        # Resize mask to the size of the image
-        mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
-        mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
-        # we want the masked region to be labeled as unknown (19 is not an existing label)
-        target_with_mask = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
-        mask2 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
-        mask_tensor = torch.tensor(mask2, dtype=torch.float).cuda()
-        output_with_mask = torch.mul(1 - mask_tensor, output)
-        # cat the mask as to the logits (loss=0 over the masked region)
-        output_with_mask_cat = torch.cat(
-            (output_with_mask.squeeze(), mask_tensor.squeeze().unsqueeze(0))
-        )
-        loss = nn.CrossEntropyLoss()(
-            output_with_mask_cat.unsqueeze(0), target_with_mask.squeeze().unsqueeze(0)
-        )
+        if self.full_adaptation == 0 and mask is not None: 
+            # Resize mask to the size of the image
+            mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+            mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
+            # we want the masked region to be labeled as unknown (19 is not an existing label)
+            target_with_mask = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
+            mask2 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+            mask_tensor = torch.tensor(mask2, dtype=torch.float).cuda()
+            output_with_mask = torch.mul(1 - mask_tensor, output)
+            # cat the mask as to the logits (loss=0 over the masked region)
+            output_with_mask_cat = torch.cat(
+                (output_with_mask.squeeze(), mask_tensor.squeeze().unsqueeze(0))
+            )
+            loss = nn.CrossEntropyLoss()(
+                output_with_mask_cat.unsqueeze(0), target_with_mask.squeeze().unsqueeze(0)
+            )
+        else:
+            loss = nn.CrossEntropyLoss()(
+                output, target
+            )
         return loss
 
     def sample(self, x_a, x_b):

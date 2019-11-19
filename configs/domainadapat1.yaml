@@ -27,14 +27,11 @@ recon_x_cyc_w: 12             # weight of explicit style augmented cycle consist
 vgg_w: 0                      # weight of domain-invariant perceptual loss
 
 semantic_w: 3                 # weight of semantic conservation loss
-recon_mask: 1                 # default 0 Cycle consistency loss on the entire image, 1 do not compute cycle consistency loss on masked region, should be 0 if full_adaptation is 1 
-check_alignment: 1            # When using pairs, recompute the mask to eliminate non-aligned pixels   
-                            
-full_adaptation: 1            #Adapt the entire image without with semantic consistency but without any flooding mask  
+recon_mask: 1                 # default 0 do not touch recon loss, 1 do not compute cycle consistency loss on masked region
 domain_adv_w: 0 
 
 synthetic_frequency: -1       # frequency to which we show synthetic examples -1 if we don't want to
-recon_synth_w: 0              # weight of image reconstruction loss on the pair
+recon_synth_w: 0             # weight of image reconstruction loss on the pair
 #classifier ckpt path: 
 class_ckpt_path: 
 
@@ -46,7 +43,7 @@ gen_state: 1                  # Default 0, 1 means using one common style encode
 guided: 1                     # Default 0 random style picked (multi modal), 1 means guided training
 
 # FID 
-batch_size_fid: 1             # batch_size to infer the model when computing fid
+batch_size_fid: 1            # batch_size to infer the model when computing fid
 eval_fid: 1                   # Default 0, 1 means we track FID during training 
 
 # Path to the inception moment computed on the real dataset of 900 flooded images
@@ -81,21 +78,18 @@ crop_image_height: 256                      # random crop image of this height
 crop_image_width: 256                       # random crop image of this width
 
 data_folder_train_a: ./
-data_list_train_a: /network/tmp1/ccai/data/domain_adaptation/trainAR.txt
+data_list_train_a: /network/tmp1/ccai/data/munit_dataset/trainA.txt
 data_folder_test_a: ./
-data_list_test_a: /network/tmp1/ccai/data/domain_adaptation/testAR.txt
+data_list_test_a: /network/tmp1/ccai/data/munit_dataset/testA.txt
 data_folder_train_b: ./
-data_list_train_b: /network/tmp1/ccai/data/domain_adaptation/trainAS.txt
+data_list_train_b: /network/tmp1/ccai/data/munit_dataset/trainB.txt
 data_folder_test_b: ./
-data_list_test_b: /network/tmp1/ccai/data/domain_adaptation/testAS.txt
-data_list_train_a_seg: null
-data_list_train_b_seg: null
+data_list_test_b: /network/tmp1/ccai/data/munit_dataset/testB.txt
+data_list_train_a_seg: /network/tmp1/ccai/data/munit_dataset/trainA_seg.txt
+data_list_train_b_seg: /network/tmp1/ccai/data/munit_dataset/trainB_seg.txt
 data_list_train_a_synth: /network/tmp1/ccai/data/munit_dataset/trainA_synth.txt
 data_list_train_b_synth: /network/tmp1/ccai/data/munit_dataset/trainB_synth.txt
 data_list_train_b_seg_synth: /network/tmp1/ccai/data/munit_dataset/trainB_seg_synth.txt
 # list image for FID monitoring
 data_list_fid_a: /network/tmp1/ccai/data/munit_dataset/trainA_fid.txt
 data_list_fid_b: /network/tmp1/ccai/data/munit_dataset/trainB.txt
-
-
-
