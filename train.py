@@ -270,7 +270,7 @@ while train_G1:
 # In the case we want to train MUNIT's pix2pixHD-like extension
             
 # Instantiate dataloader for G2
-train_G2 = True
+train_G2 = False
 
 # Use HD dataloader
 train_loader_a_w_mask = get_data_loader_mask_and_im_HD(
@@ -391,7 +391,7 @@ while train_G2:
 
 
 # Train MUNIT and G2 at the same time
-train_global = False
+train_global = True
 
 # Define the scheduler 
 trainer.dis_scheduler = get_scheduler(trainer.dis_opt_global, config, iterations)
@@ -425,8 +425,8 @@ while train_global:
             if (iteration_global + 1) % config["image_display_iter"] == 0:
                 with torch.no_grad():
                     image_outputs = trainer.sample_HD(
-                                        train_display_images_a, train_display_images_a_HD, 
-                                        train_display_images_b, train_display_images_b_HD
+                                        train_display_images_a_HD, 
+                                        train_display_images_b_HD
                                     )
                 write_2images(
                     image_outputs,
