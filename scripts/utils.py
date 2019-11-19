@@ -154,6 +154,11 @@ def get_all_data_loaders(conf):
         )
     return train_loader_a, train_loader_b, test_loader_a, test_loader_b
 
+def seg_batch_transform(img_batch):
+    N = img_batch.shape[0]
+    for i in range(N):
+        img_batch[i,:,:,:] = seg_transform()(img_batch[i,:,:,:])
+    return(img_batch)
 
 def seg_transform():
     """
