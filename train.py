@@ -333,7 +333,8 @@ while train_G2:
     for it, ((images_HD_a, mask_HD_a, images_a, mask_a), (images_HD_b, mask_HD_b, images_b, mask_b)) in enumerate(
         zip(train_loader_a_w_mask, train_loader_b_w_mask)
     ):
-        lambda_dis = torch.min(torch.tensor(1/opts.lambda_param*iteration_G2, device = 'cuda'),1)
+        lambda_dis = torch.min(torch.tensor(1/opts.lambda_param*iteration_G2, device = 'cuda'),
+                               torch.tensor(1.0, device = 'cuda'))
         trainer.update_learning_rate_HD()
         
         # warmup is boolean value 
