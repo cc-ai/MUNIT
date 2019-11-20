@@ -338,8 +338,17 @@ class MUNIT_Trainer(nn.Module):
         # reconstruction loss
         self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
         self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon, x_b)
-        self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a)
-        self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
+        
+        if self.guided == 0:
+            self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a)
+            self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
+
+        elif self.guided == 1:
+            self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a_prime)
+            self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b_prime)
+        else:
+            print("self.guided unknown value:", self.guided)
+            
         self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
         
@@ -677,8 +686,17 @@ class MUNIT_Trainer(nn.Module):
         # reconstruction loss
         self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
         self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon, x_b)
-        self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a)
-        self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
+        
+        if self.guided == 0:
+            self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a)
+            self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b)
+
+        elif self.guided == 1:
+            self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a_prime)
+            self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b_prime)
+        else:
+            print("self.guided unknown value:", self.guided)
+            
         self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
 
