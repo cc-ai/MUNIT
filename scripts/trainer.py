@@ -3,7 +3,7 @@ Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 from comet_ml import Experiment
-from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen
+from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen, SPADE_gen
 from utils import (
     weights_init,
     get_model_list,
@@ -38,6 +38,15 @@ class MUNIT_Trainer(nn.Module):
         self.dann_scheduler = None
         self.full_adaptation = hyperparameters["full_adaptation"] == 1
         
+        class opt():
+            def __init__(self, norm_G, semantic_nc):
+                self.norm_G = norm_G
+                self.semantic_nc = semantic_nc
+
+        # Temporarily we use the same structure as in SPADE,
+        # There is an opt dict containing all the needed informations
+        self.opt_dict = opt(norm_G = "spadeinstance3x3", semantic_nc = 19)
+        
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif = hyperparameters["domain_adv_w"] > 0
         else:
@@ -55,6 +64,10 @@ class MUNIT_Trainer(nn.Module):
         elif self.gen_state == 1:
             self.gen = AdaINGen_double(
                 hyperparameters["input_dim_a"], hyperparameters["gen"]
+            )
+        elif self.gen_state == 2:
+            self.gen = SPADE_gen(
+                hyperparameters["input_dim_a"], hyperparameters["gen"],opt_dict=self.opt_dict
             )
         else:
             print("self.gen_state unknown value:", self.gen_state)
@@ -80,7 +93,7 @@ class MUNIT_Trainer(nn.Module):
 
         if self.gen_state == 0:
             gen_params = list(self.gen_a.parameters()) + list(self.gen_b.parameters())
-        elif self.gen_state == 1:
+        elif self.gen_state == 1 or self.gen_state==2 :
             gen_params = list(self.gen.parameters())
         else:
             print("self.gen_state unknown value:", self.gen_state)
@@ -279,6 +292,35 @@ class MUNIT_Trainer(nn.Module):
                 if hyperparameters["recon_x_cyc_w"] > 0
                 else None
             )
+        elif self.gen_state == 2:
+            seg_a, seg_ab = self.segmentation_map(img1, mask_a)
+            seg_ba, seg_b = self.segmentation_map(img2, mask_b)
+            # encode
+            c_a = self.gen.encode(x_a, 1)
+            c_b = self.gen.encode(x_b, 2)
+            # decode (within domain)
+            x_a_recon = self.gen.decode(c_a, seg_a, 1)
+            x_b_recon = self.gen.decode(c_b, seg_b, 2)
+            
+            # decode (cross domain)
+            x_ba = self.gen.decode(c_b, seg_ba, 1)
+            x_ab = self.gen.decode(c_a, seg_ab, 2)
+
+            # encode again
+            c_b_recon = self.gen.encode(x_ba, 1)
+            c_a_recon = self.gen.encode(x_ab, 2)
+            
+            # decode again (if needed)
+            x_aba = (
+                self.gen.decode(c_a_recon, seg_a, 1)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else None
+            )
+            x_bab = (
+                self.gen.decode(c_b_recon, seg_b, 2)
+                if hyperparameters["recon_x_cyc_w"] > 0
+                else None
+            )
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
@@ -293,6 +335,9 @@ class MUNIT_Trainer(nn.Module):
         elif self.guided == 1:
             self.loss_gen_recon_s_a = self.recon_criterion(s_a_recon, s_a_prime)
             self.loss_gen_recon_s_b = self.recon_criterion(s_b_recon, s_b_prime)
+        elif self.guided == 2:
+            self.loss_gen_recon_s_a = 0
+            self.loss_gen_recon_s_b = 0
         else:
             print("self.guided unknown value:", self.guided)
 
@@ -338,6 +383,7 @@ class MUNIT_Trainer(nn.Module):
         # GAN loss
         self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba)
         self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab)
+        
         # domain-invariant perceptual loss
         self.loss_gen_vgg_a = (
             self.compute_vgg_loss(self.vgg, x_ba, x_b)
@@ -516,6 +562,46 @@ class MUNIT_Trainer(nn.Module):
                output, target
             )
         return loss
+    
+    def segmentation_map(self, img1, mask=None):
+        """
+        Compute semantic segmentation loss between two images on the unmasked region or in the entire image
+        Arguments:
+            img1 {torch.Tensor} -- Image from domain A after transform in tensor format
+            img2 {torch.Tensor} -- Image transformed
+            mask {torch.Tensor} -- Binary mask where we force the loss to be zero
+        Returns:
+            torch.float -- Cross entropy loss on the unmasked region
+        """
+        # denorm
+        img1_denorm = (img1 + 1) / 2.0
+
+        # norm for semantic seg network
+        input_transformed1 = seg_batch_transform(img1_denorm)
+
+        # compute labels from original image and logits from translated version
+        target = (
+           self.segmentation_model(input_transformed1).max(1)[1]
+        )
+
+        # Resize mask to the size of the image
+        mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+        mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
+        mask1_tensor = mask1_tensor.squeeze(1)
+        # we want the masked region to be labeled as unknown (19  ground)
+        # we want the masked region to be labeled as unknown (20  water)
+        target_with_mask_ground = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
+        target_with_mask_water  = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 20
+        
+        bs,h,w = target_with_mask_water.size()
+        
+        input_label_ground = torch.cuda.FloatTensor(bs, 21, h, w).zero_()
+        input_sem_ground   = input_label_ground.scatter_(1, target_with_mask_ground, 1.0)
+        
+        input_label_water  = torch.cuda.FloatTensor(bs, 21, h, w).zero_()
+        input_sem_water    = input_label_water.scatter_(1, target_with_mask_water, 1.0)
+        
+        return input_sem_ground, input_sem_water
 
     def sample(self, x_a, x_b):
         """ 
@@ -590,6 +676,23 @@ class MUNIT_Trainer(nn.Module):
                     )  # s_b2[i].unsqueeze(0)))
                 else:
                     print("self.guided unknown value:", self.guided)
+                    
+        elif self.gen_state == 2:
+            for i in range(x_a.size(0)):
+
+                seg_a, seg_ab = self.segmentation_map(img1, mask_a)
+                seg_ba, seg_b = self.segmentation_map(img2, mask_b)
+                # encode
+                c_a = self.gen.encode(x_a[i].unsqueeze(0), 1)
+                c_b = self.gen.encode(x_b[i].unsqueeze(0), 2)
+
+                # decode (within domain)
+                x_a_recon.append(self.gen.decode(c_a, seg_a, 1))
+                x_b_recon.append(self.gen.decode(c_b, seg_b, 2))
+
+                # decode (cross domain)
+                x_ba1.append(self.gen.decode(c_b, seg_ba, 1))
+                x_ab1.append(self.gen.decode(c_a, seg_ab, 2))
 
         else:
             print("self.gen_state unknown value:", self.gen_state)
@@ -725,7 +828,7 @@ class MUNIT_Trainer(nn.Module):
         return x_ab1
 
         
-    def dis_update(self, x_a, x_b, hyperparameters, comet_exp=None):
+    def dis_update(self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None):
         """
         Update the weights of the discriminator
         
@@ -737,6 +840,7 @@ class MUNIT_Trainer(nn.Module):
         Keyword Arguments:
             comet_exp {cometExperience} -- CometML object use to log all the loss and images (default: {None})        
         """
+        
         self.dis_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -766,6 +870,22 @@ class MUNIT_Trainer(nn.Module):
                 x_ab = self.gen.decode(c_a, s_b_prime, 2)
             else:
                 print("self.guided unknown value:", self.guided)
+        elif self.gen_state == 2:
+            # Define the segmentation Map
+            seg_a, seg_ab = self.segmentation_map(img1, mask_a)
+            seg_ba, seg_b = self.segmentation_map(img2, mask_b)
+            
+            # Encode
+            c_a = self.gen.encode(x_a, 1)
+            c_b = self.gen.encode(x_b, 2)
+            
+            # Decode (within domain)
+            x_a_recon = self.gen.decode(c_a, seg_a, 1)
+            x_b_recon = self.gen.decode(c_b, seg_b, 2)
+            
+            # Decode (cross domain)
+            x_ba = self.gen.decode(c_b, seg_ba, 1)
+            x_ab = self.gen.decode(c_a, seg_ab, 2)
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
@@ -850,7 +970,7 @@ class MUNIT_Trainer(nn.Module):
         if self.gen_state == 0:
             self.gen_a.load_state_dict(state_dict["a"])
             self.gen_b.load_state_dict(state_dict["b"])
-        elif self.gen_state == 1:
+        elif self.gen_state == 1 or self.gen_state == 2 :
             self.gen.load_state_dict(state_dict["2"])
         else:
             print("self.gen_state unknown value:", self.gen_state)
@@ -902,7 +1022,7 @@ class MUNIT_Trainer(nn.Module):
             torch.save(
                 {"a": self.gen_a.state_dict(), "b": self.gen_b.state_dict()}, gen_name
             )
-        elif self.gen_state == 1:
+        elif self.gen_state == 1 or self.gen_state == 2:
             torch.save({"2": self.gen.state_dict()}, gen_name)
         else:
             print("self.gen_state unknown value:", self.gen_state)

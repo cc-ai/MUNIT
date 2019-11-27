@@ -222,7 +222,7 @@ else:
 
             with Timer("Elapsed time in update: %f"):
                 # Main training code
-                trainer.dis_update(images_a, images_b, config, comet_exp)
+                trainer.dis_update(images_a, images_b, config, mask_a = mask_a, mask_b = mask_b, comet_exp=comet_exp)
                 
                 if (iterations + 1)% config["ratio_disc_gen"] ==0:
                     trainer.gen_update(
@@ -247,7 +247,7 @@ else:
 
                     with Timer("Elapsed time in update: %f"):
                         # Main training code
-                        trainer.dis_update(images_a, images_b, config, comet_exp)
+                        trainer.dis_update(images_a, images_b, config, mask_a = mask_a, mask_b = mask_b, comet_exp=comet_exp)
                         trainer.gen_update(
                             images_a, images_b, config, mask_a, mask_b, comet_exp,True
                         )
@@ -275,15 +275,6 @@ else:
                     "train_%08d" % (iterations + 1),
                     comet_exp,
                 )
-
-                #                 ####################################### 
-                #                 #           WORK in Progress          #
-                #                 #######################################
-                #                 # Compute FID
-                #                 FID = get_inception_metrics(trainer, fid_loader,prints=True, use_torch=False)
-                #                 if comet_exp is not None:
-                #                     comet_exp.log_metric("FID", FID)
-                #                 print('FID =',FID)
 
             if (iterations + 1) % config["image_display_iter"] == 0:
                 with torch.no_grad():

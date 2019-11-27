@@ -7,6 +7,9 @@ from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
 
+import re
+import torch.nn.utils.spectral_norm as spectral_norm
+
 try:
     from itertools import izip as zip
 except ImportError:  # will be 3.x series
@@ -336,7 +339,63 @@ class AdaINGen_double(nn.Module):
                 num_adain_params += 2 * m.num_features
         return num_adain_params
 
+##################################################################################
+# SPADE GENERATOR
+##################################################################################
+class SPADE_gen(nn.Module):
 
+    # SPADE_gen auto-encoder architecture
+    def __init__(self, input_dim, params, opt_dict):
+        super(SPADE_gen, self).__init__()
+        dim = params["dim"]
+        n_downsample = params["n_downsample"]
+        n_res = params["n_res"]
+        activ = params["activ"]
+        pad_type = params["pad_type"]
+
+        # content encoder
+        self.enc1_content = ContentEncoder(
+            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
+        )
+        self.enc2_content = ContentEncoder(
+            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
+        )
+
+        self.dec1 = SpadeDecoder(
+            n_upsample= n_downsample, 
+            n_res = n_res, 
+            dim = self.enc1_content.output_dim, 
+            output_dim = input_dim, 
+            opt = opt_dict) # We still have to define opt_dict
+        
+        self.dec2 = SpadeDecoder(
+            n_upsample= n_downsample, 
+            n_res = n_res, 
+            dim = self.enc2_content.output_dim, 
+            output_dim = input_dim, 
+            opt = opt_dict)
+
+    def encode(self, images, encoder_name):
+        # encode an image
+        if encoder_name == 1:
+            content = self.enc1_content(images)
+        elif encoder_name == 2:
+            content = self.enc2_content(images)
+        else:
+            print("Wrong value for encoder_name, must be 0 or 1")
+            return None
+        return content
+
+    def decode(self, content, seg, encoder_name):
+        if encoder_name == 1:
+            images = self.dec1(content,seg)
+        elif encoder_name == 2:
+            images = self.dec2(content,seg)
+        else:
+            print("Wrong value for encoder_name, must be 0 or 1")
+            return None
+        return images
+    
 class VAEGen(nn.Module):
     # VAE architecture
     def __init__(self, input_dim, params):
@@ -512,6 +571,63 @@ class Decoder(nn.Module):
         return self.model(x)
 
 
+class SpadeDecoder(nn.Module):
+    def __init__(
+        self,
+        n_upsample,
+        n_res,
+        dim,
+        output_dim,
+        opt,
+        res_norm="adain",
+        activ="relu",
+        pad_type="zero",
+    ):
+        super(SpadeDecoder, self).__init__()
+        self.n_res = n_res
+        self.model = []
+        
+        # SPADE residual blocks
+        self.model += [SpadeResBlocks(n_res, dim, opt)]
+        # UPSAMPLING blocks
+        for i in range(n_upsample):
+            self.model += [
+                nn.Upsample(scale_factor=2),
+                Conv2dBlock(
+                    dim,
+                    dim // 2,
+                    5,
+                    1,
+                    2,
+                    norm="ln",
+                    activation=activ,
+                    pad_type=pad_type,
+                ),
+            ]
+            dim //= 2
+        # use reflection padding in the last conv layer
+        self.model += [
+            Conv2dBlock(
+                dim,
+                output_dim,
+                7,
+                1,
+                3,
+                norm="none",
+                activation="tanh",
+                pad_type=pad_type,
+            )
+        ]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x, seg):
+        for j in range(len(self.model)):
+            if j ==0 : 
+                x = self.model[j].forward(x,seg)
+            else:
+                x = self.model[j].forward(x)
+        return x
+
 ##################################################################################
 # Sequential Models
 ##################################################################################
@@ -528,7 +644,6 @@ class ResBlocks(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-
 class MLP(nn.Module):
     def __init__(self, input_dim, output_dim, dim, n_blk, norm="none", activ="relu"):
 
@@ -544,8 +659,128 @@ class MLP(nn.Module):
 
     def forward(self, x):
         return self.model(x.view(x.size(0), -1))
+    
+##################################################################################
+# Sequential Spade Model
+##################################################################################
+class SpadeResBlocks(nn.Module):
+    def __init__(self, num_blocks, dim, opt):
+        super(SpadeResBlocks, self).__init__()
+        self.model = []
+        for i in range(num_blocks):
+            self.model += [
+                SPADEResnetBlock(dim, opt)
+            ]
+        self.model = nn.Sequential(*self.model)
+        self.num_blocks = num_blocks
+    def forward(self, x, seg):
+        for j in range(self.num_blocks):
+            x = self.model[j](x,seg)
+        return x
+    
+##################################################################################
+# SPADE Normalization
+##################################################################################
+class SPADE(nn.Module):
+    def __init__(self, config_text, norm_nc, label_nc):
+        super().__init__()
 
+        assert config_text.startswith('spade')
+        parsed = re.search('spade(\D+)(\d)x\d', config_text)
+        param_free_norm_type = str(parsed.group(1))
+        ks = int(parsed.group(2))
 
+        if param_free_norm_type == 'instance':
+            self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
+        elif param_free_norm_type == 'syncbatch':
+            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
+        elif param_free_norm_type == 'batch':
+            self.param_free_norm = BatchNorm2d(norm_nc, affine=False)
+        else:
+            raise ValueError('%s is not a recognized param-free norm type in SPADE'
+                             % param_free_norm_type)
+
+        # The dimension of the intermediate embedding space. Yes, hardcoded.
+        nhidden = 128
+
+        pw = ks // 2
+        self.mlp_shared = nn.Sequential(
+            nn.Conv2d(label_nc, nhidden, kernel_size=ks, padding=pw),
+            nn.ReLU()
+        )
+        self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+        self.mlp_beta  = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+
+    def forward(self, x, segmap):
+
+        # Part 1. generate parameter-free normalized activations
+        normalized = self.param_free_norm(x)
+
+        # Part 2. produce scaling and bias conditioned on semantic map
+        segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
+        actv = self.mlp_shared(segmap)
+        gamma = self.mlp_gamma(actv)
+        beta = self.mlp_beta(actv)
+
+        # apply scale and bias
+        out = normalized * (1 + gamma) + beta
+
+        return out
+##################################################################################
+# Spade Blocks
+##################################################################################
+class SPADEResnetBlock(nn.Module):
+    def __init__(self, dim, opt):
+        super().__init__()
+        # Attributes
+        fin = dim
+        fout = dim
+        
+        self.learned_shortcut = (fin != fout)
+        fmiddle = min(fin, fout)
+
+        # create conv layers
+        self.conv_0 = nn.Conv2d(fin, fmiddle, kernel_size =3, padding=1)
+        self.conv_1 = nn.Conv2d(fmiddle, fout, kernel_size=3, padding=1)
+        if self.learned_shortcut:
+            self.conv_s = nn.Conv2d(fin, fout, kernel_size=1, bias=False)
+
+        # apply spectral norm if specified
+        if 'spectral' in opt.norm_G:
+            self.conv_0 = spectral_norm(self.conv_0)
+            self.conv_1 = spectral_norm(self.conv_1)
+            if self.learned_shortcut:
+                self.conv_s = spectral_norm(self.conv_s)
+
+        # define normalization layers
+        spade_config_str =  opt.norm_G.replace('spectral', '') #"spadeinstance3x3".replace('spectral', '') #
+        self.norm_0 = SPADE(spade_config_str, fin, opt.semantic_nc)
+        self.norm_1 = SPADE(spade_config_str, fmiddle, opt.semantic_nc)
+        if self.learned_shortcut:
+            self.norm_s = SPADE(spade_config_str, fin, opt.semantic_nc)
+
+    # note the resnet block with SPADE also takes in |seg|,
+    # the semantic segmentation map as input
+    def forward(self, x, seg):
+        x_s = self.shortcut(x, seg)
+
+        dx = self.conv_0(self.actvn(self.norm_0(x, seg)))
+        dx = self.conv_1(self.actvn(self.norm_1(dx, seg)))
+
+        out = x_s + dx
+
+        return out
+
+    def shortcut(self, x, seg):
+        if self.learned_shortcut:
+            x_s = self.conv_s(self.norm_s(x, seg))
+        else:
+            x_s = x
+        return x_s
+
+    def actvn(self, x):
+        return F.leaky_relu(x, 2e-1)
+    
 ##################################################################################
 # Basic Blocks
 ##################################################################################
