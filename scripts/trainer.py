@@ -45,7 +45,7 @@ class MUNIT_Trainer(nn.Module):
 
         # Temporarily we use the same structure as in SPADE,
         # There is an opt dict containing all the needed informations
-        self.opt_dict = opt(norm_G = "spadeinstance3x3", semantic_nc = 19)
+        self.opt_dict = opt(norm_G = "spadeinstance3x3", semantic_nc = 21)
         
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif = hyperparameters["domain_adv_w"] > 0
@@ -293,8 +293,8 @@ class MUNIT_Trainer(nn.Module):
                 else None
             )
         elif self.gen_state == 2:
-            seg_a, seg_ab = self.segmentation_map(img1, mask_a)
-            seg_ba, seg_b = self.segmentation_map(img2, mask_b)
+            seg_a, seg_ab = self.segmentation_map(x_a, mask_a)
+            seg_ba, seg_b = self.segmentation_map(x_b, mask_b)
             # encode
             c_a = self.gen.encode(x_a, 1)
             c_b = self.gen.encode(x_b, 2)
@@ -437,14 +437,19 @@ class MUNIT_Trainer(nn.Module):
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a.cpu().detach())
             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b.cpu().detach())
             comet_exp.log_metric("loss_gen_recon_x_a", self.loss_gen_recon_x_a.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_s_a", self.loss_gen_recon_s_a.cpu().detach())
+            
+            if self.guided != 2:
+                comet_exp.log_metric("loss_gen_recon_s_a", self.loss_gen_recon_s_a.cpu().detach())
+                comet_exp.log_metric("loss_gen_recon_s_b", self.loss_gen_recon_s_b.cpu().detach())
+                
             comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a.cpu().detach())
             comet_exp.log_metric("loss_gen_recon_x_b", self.loss_gen_recon_x_b.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_s_b", self.loss_gen_recon_s_b.cpu().detach())
+            
             comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b.cpu().detach())
             comet_exp.log_metric("loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a.cpu().detach())
             comet_exp.log_metric("loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b.cpu().detach())
             comet_exp.log_metric("loss_gen_total", self.loss_gen_total.cpu().detach())
+            
             if hyperparameters["vgg_w"] > 0:
                 comet_exp.log_metric("loss_gen_vgg_a", self.loss_gen_vgg_a.cpu().detach())
                 comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b.cpu().detach())
@@ -596,14 +601,14 @@ class MUNIT_Trainer(nn.Module):
         bs,h,w = target_with_mask_water.size()
         
         input_label_ground = torch.cuda.FloatTensor(bs, 21, h, w).zero_()
-        input_sem_ground   = input_label_ground.scatter_(1, target_with_mask_ground, 1.0)
+        input_sem_ground   = input_label_ground.scatter_(1, target_with_mask_ground.unsqueeze(1), 1.0)
         
         input_label_water  = torch.cuda.FloatTensor(bs, 21, h, w).zero_()
-        input_sem_water    = input_label_water.scatter_(1, target_with_mask_water, 1.0)
+        input_sem_water    = input_label_water.scatter_(1, target_with_mask_water.unsqueeze(1), 1.0)
         
         return input_sem_ground, input_sem_water
 
-    def sample(self, x_a, x_b):
+    def sample(self, x_a, x_b, mask_a=None, mask_b=None):
         """ 
         Infer the model on a batch of image
         
@@ -678,28 +683,27 @@ class MUNIT_Trainer(nn.Module):
                     print("self.guided unknown value:", self.guided)
                     
         elif self.gen_state == 2:
+            seg_a, seg_ab = self.segmentation_map(x_a, mask_a)
+            seg_ba, seg_b = self.segmentation_map(x_b, mask_b)
             for i in range(x_a.size(0)):
-
-                seg_a, seg_ab = self.segmentation_map(img1, mask_a)
-                seg_ba, seg_b = self.segmentation_map(img2, mask_b)
                 # encode
                 c_a = self.gen.encode(x_a[i].unsqueeze(0), 1)
                 c_b = self.gen.encode(x_b[i].unsqueeze(0), 2)
 
                 # decode (within domain)
-                x_a_recon.append(self.gen.decode(c_a, seg_a, 1))
-                x_b_recon.append(self.gen.decode(c_b, seg_b, 2))
+                x_a_recon.append(self.gen.decode(c_a, seg_a[i,:,:,:].unsqueeze(0), 1))
+                x_b_recon.append(self.gen.decode(c_b, seg_b[i,:,:,:].unsqueeze(0), 2))
 
                 # decode (cross domain)
-                x_ba1.append(self.gen.decode(c_b, seg_ba, 1))
-                x_ab1.append(self.gen.decode(c_a, seg_ab, 2))
+                x_ba1.append(self.gen.decode(c_b, seg_ba[i,:,:,:].unsqueeze(0), 1))
+                x_ab1.append(self.gen.decode(c_a, seg_ab[i,:,:,:].unsqueeze(0), 2))
 
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
         x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
-        x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
-        x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
+        x_ba1 = torch.cat(x_ba1)
+        x_ab1 = torch.cat(x_ab1)
 
         if self.semantic_w:
             rgb_a_list, rgb_b_list, rgb_ab_list, rgb_ba_list = [], [], [], []
@@ -766,16 +770,15 @@ class MUNIT_Trainer(nn.Module):
                 rgb1_a,
                 x_ab1,
                 rgb1_ab,
-                x_ab2,
                 x_b,
                 x_b_recon,
                 rgb1_b,
                 x_ba1,
                 rgb1_ba,
-                x_ba2,
+                
             )
         else:
-            return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
+            return x_a, x_a_recon, x_ab1, x_b, x_b_recon, x_ba1
 
     def sample_fid(self, x_a, x_b):
         """ 
@@ -872,8 +875,8 @@ class MUNIT_Trainer(nn.Module):
                 print("self.guided unknown value:", self.guided)
         elif self.gen_state == 2:
             # Define the segmentation Map
-            seg_a, seg_ab = self.segmentation_map(img1, mask_a)
-            seg_ba, seg_b = self.segmentation_map(img2, mask_b)
+            seg_a, seg_ab = self.segmentation_map(x_a, mask_a)
+            seg_ba, seg_b = self.segmentation_map(x_b, mask_b)
             
             # Encode
             c_a = self.gen.encode(x_a, 1)

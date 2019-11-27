@@ -121,11 +121,20 @@ if config["eval_fid"] > 0:
     get_inception_metrics = prepare_inception_metrics(inception_moment=config["inception_moment_path"],parallel=False)
     
 train_display_images_a = torch.stack(
-    [train_loader_a.dataset[i] for i in range(display_size)]
+    [train_loader_a_w_mask.dataset[i][0] for i in range(display_size)]
 ).cuda()
 train_display_images_b = torch.stack(
-    [train_loader_b.dataset[i] for i in range(display_size)]
+    [train_loader_b_w_mask.dataset[i][0] for i in range(display_size)]
 ).cuda()
+
+train_display_mask_a = torch.stack(
+    [train_loader_a_w_mask.dataset[i][1] for i in range(display_size)]
+).cuda()
+
+train_display_mask_b = torch.stack(
+    [train_loader_b_w_mask.dataset[i][1] for i in range(display_size)]
+).cuda()
+
 test_display_images_a = torch.stack(
     [test_loader_a.dataset[i] for i in range(display_size)]
 ).cuda()
@@ -255,19 +264,22 @@ else:
             # Write images
             if (iterations + 1) % config["image_save_iter"] == 0:
                 with torch.no_grad():
-                    test_image_outputs = trainer.sample(
-                        test_display_images_a, test_display_images_b
-                    )
+                    #                     test_image_outputs = trainer.sample(
+                    #                         test_display_images_a, test_display_images_b
+                    #                     )
                     train_image_outputs = trainer.sample(
-                        train_display_images_a, train_display_images_b
+                        train_display_images_a, 
+                        train_display_images_b, 
+                        mask_a=train_display_mask_a, 
+                        mask_b=train_display_mask_b
                     )
-                write_2images(
-                    test_image_outputs,
-                    display_size,
-                    image_directory,
-                    "test_%08d" % (iterations + 1),
-                    comet_exp,
-                )
+                    #                 write_2images(
+                    #                     test_image_outputs,
+                    #                     display_size,
+                    #                     image_directory,
+                    #                     "test_%08d" % (iterations + 1),
+                    #                     comet_exp,
+                    #                 )
                 write_2images(
                     train_image_outputs,
                     display_size,
@@ -279,7 +291,10 @@ else:
             if (iterations + 1) % config["image_display_iter"] == 0:
                 with torch.no_grad():
                     image_outputs = trainer.sample(
-                        train_display_images_a, train_display_images_b
+                        train_display_images_a, 
+                        train_display_images_b, 
+                        mask_a=train_display_mask_a, 
+                        mask_b=train_display_mask_b
                     )
                 write_2images(
                     image_outputs,
