@@ -81,13 +81,13 @@ crop_image_height: 256                      # random crop image of this height
 crop_image_width: 256                       # random crop image of this width
 
 data_folder_train_a: ./
-data_list_train_a: /network/tmp1/ccai/data/domain_adaptation/trainAR.txt
+data_list_train_a: /network/tmp1/ccai/data/domain_adaptation/trainBR.txt
 data_folder_test_a: ./
-data_list_test_a: /network/tmp1/ccai/data/domain_adaptation/testAR.txt
+data_list_test_a: /network/tmp1/ccai/data/domain_adaptation/testBR.txt
 data_folder_train_b: ./
-data_list_train_b: /network/tmp1/ccai/data/domain_adaptation/trainAS.txt
+data_list_train_b: /network/tmp1/ccai/data/domain_adaptation/trainBS.txt
 data_folder_test_b: ./
-data_list_test_b: /network/tmp1/ccai/data/domain_adaptation/testAS.txt
+data_list_test_b: /network/tmp1/ccai/data/domain_adaptation/testBS.txt
 data_list_train_a_seg: null
 data_list_train_b_seg: null
 data_list_train_a_synth: /network/tmp1/ccai/data/munit_dataset/trainA_synth.txt

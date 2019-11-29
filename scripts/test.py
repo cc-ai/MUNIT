@@ -24,23 +24,8 @@ parser.add_argument("--output_folder", type=str, help="output image directory")
 parser.add_argument("--checkpoint", type=str, help="checkpoint of generator")
 parser.add_argument("--style", type=str, default="", help="style image path")
 parser.add_argument("--seed", type=int, default=10, help="random seed")
-
-parser.add_argument(
-    "--synchronized",
-    action="store_true",
-    help="whether use synchronized style code or not",
-)
-parser.add_argument(
-    "--save_input",
-    action="store_true",
-    help="whether use synchronized style code or not",
-)
-parser.add_argument(
-    "--output_path",
-    type=str,
-    default=".",
-    help="path for logs, checkpoints, and VGG model weight",
-)
+parser.add_argument("--save_input", action="store_true",)
+parser.add_argument("--output_path",type=str,default=".", help="path for logs, checkpoints, and VGG model weight",)
 opts = parser.parse_args()
 
 # Set the seed value

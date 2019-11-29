@@ -34,7 +34,11 @@ class MUNIT_Trainer(nn.Module):
         self.guided = hyperparameters["guided"]
         self.newsize = hyperparameters["crop_image_height"]
         self.semantic_w = hyperparameters["semantic_w"] > 0
+
         self.recon_mask = hyperparameters["recon_mask"] == 1
+        self.check_alignment = hyperparameters["check_alignment"] == 1
+
+        self.full_adaptation =  hyperparameters["full_adaptation"] == 1 
         self.dann_scheduler = None
         self.full_adaptation = hyperparameters["full_adaptation"] == 1
         
@@ -42,7 +46,6 @@ class MUNIT_Trainer(nn.Module):
             self.domain_classif = hyperparameters["domain_adv_w"] > 0
         else:
             self.domain_classif = False
-
         if self.gen_state == 0:
             # Initiate the networks
             self.gen_a = AdaINGen(
@@ -62,6 +65,7 @@ class MUNIT_Trainer(nn.Module):
         self.dis_a = MsImageDis(
             hyperparameters["input_dim_a"], hyperparameters["dis"]
         )  # discriminator for domain a
+
         self.dis_b = MsImageDis(
             hyperparameters["input_dim_b"], hyperparameters["dis"]
         )  # discriminator for domain b
@@ -70,12 +74,15 @@ class MUNIT_Trainer(nn.Module):
 
         # fix the noise used in sampling
         display_size = int(hyperparameters["display_size"])
+        print(self.style_dim)
+        print(display_size)
         self.s_a = torch.randn(display_size, self.style_dim, 1, 1).cuda()
-        self.s_b = torch.randn(display_size, self.style_dim, 1, 1).cuda()
 
+        self.s_b = torch.randn(display_size, self.style_dim, 1, 1).cuda()
         # Setup the optimizers
         beta1 = hyperparameters["beta1"]
         beta2 = hyperparameters["beta2"]
+
         dis_params = list(self.dis_a.parameters()) + list(self.dis_b.parameters())
 
         if self.gen_state == 0:
@@ -139,11 +146,11 @@ class MUNIT_Trainer(nn.Module):
 
     def recon_criterion(self, input, target):
         """
-        Compute pixelwise L1 loss between two images input and target
+        Compute pixelwise L1 loss between two images input and target 
         
         Arguments:
-            input {torch.Tensor} -- Image tensor
-            target {torch.Tensor} -- Image tensor
+            input {torch.Tensor} -- Image tensor (original image such as x_a)
+            target {torch.Tensor} -- Image tensor (after cycle-translation image x_aba)
         
         Returns:
             torch.Float -- pixelwise L1 loss
@@ -195,7 +202,7 @@ class MUNIT_Trainer(nn.Module):
         return x_ab, x_ba
 
     def gen_update(
-        self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None, synth=False
+        self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None, synth=0
     ):
         """
         Update the generator parameters
@@ -251,6 +258,7 @@ class MUNIT_Trainer(nn.Module):
         elif self.gen_state == 1:
             # encode
             c_a, s_a_prime = self.gen.encode(x_a, 1)
+            print(c_a.shape)
             c_b, s_b_prime = self.gen.encode(x_b, 2)
             # decode (within domain)
             x_a_recon = self.gen.decode(c_a, s_a_prime, 1)
@@ -301,8 +309,10 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
         
         # Synthetic reconstruction loss
-        if synth:
-            #print('mask_b.shape', mask_b.shape)
+
+        if self.check_alignment:
+            print('mask_b.shape', mask_b.shape)
+
             # Define the mask of exact same pixel among a pair
             mask_alignment = (torch.sum(torch.abs(x_a - x_b), 1) == 0).unsqueeze(1)
             mask_alignment = mask_alignment.type(torch.cuda.FloatTensor)
@@ -310,7 +320,7 @@ class MUNIT_Trainer(nn.Module):
             
         
         self.loss_gen_recon_synth = self.recon_criterion_mask(x_ab, x_b, 1-mask_alignment) + \
-                                    self.recon_criterion_mask(x_ba, x_a, 1-mask_alignment)  if synth else 0
+                                    self.recon_criterion_mask(x_ba, x_a, 1-mask_alignment)  if self.check_alignment else 0
         
         if self.recon_mask:
             self.loss_gen_cycrecon_x_a = (
@@ -406,7 +416,7 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg.cpu().detach())
             if hyperparameters["domain_adv_w"] > 0:
                 comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss.cpu().detach())
-            if synth:
+            if synth == 0:
                 comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth.cpu().detach())
 
     def compute_vgg_loss(self, vgg, img, target):
@@ -468,8 +478,10 @@ class MUNIT_Trainer(nn.Module):
             return loss
 
     def compute_semantic_seg_loss(self, img1, img2, mask=None):
-        """
+
+        """ 
         Compute semantic segmentation loss between two images on the unmasked region or in the entire image
+
         Arguments:
             img1 {torch.Tensor} -- Image from domain A after transform in tensor format
             img2 {torch.Tensor} -- Image transformed
@@ -490,6 +502,7 @@ class MUNIT_Trainer(nn.Module):
            self.segmentation_model(input_transformed1).max(1)[1]
         )
         output = self.segmentation_model(input_transformed2)
+
         
         if not self.full_adaptation and mask is not None:
             # Resize mask to the size of the image
