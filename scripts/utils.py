@@ -285,10 +285,11 @@ class MyDataset(Dataset):
         Returns:
             image, mask {Image, Image} -- transformed image and mask
         """
+        flip = False
         # Random horizontal flipping
         if torch.rand(1) > 0.5:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
-
+            flip = True
         # print('debugging mask transform 2 size',mask.size)
         # Resize
         resize = transforms.Resize(size=self.new_size)
@@ -300,19 +301,20 @@ class MyDataset(Dataset):
         )
         image = F.crop(image, i, j, h, w)
         
-        if type(mask) == 'PIL.Image.Image': 
+        if type(mask) is not torch.Tensor:
             # Resize mask
-            print("MASK IS NOT NONE")
+            if flip == True:
+                mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
+                
             mask = mask.resize((image.width, image.height), Image.NEAREST)
-            
+
             mask = F.crop(mask, i, j, h, w)
             if np.max(mask) == 1:
                 mask = to_tensor(mask) * 255
             else:
                 mask = to_tensor(mask)
-            if torch.rand(1) > 0.5:
-                mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
-        # print('debugging mask transform 4 size',mask.size)
+            
+            # print('debugging mask transform 4 size',mask.size)
         
         # Transform to tensor
         
@@ -611,6 +613,7 @@ def get_data_loader_mask_and_im(
     Returns:
         loader -- data loader with transformed dataset
     """
+    print(file_list,mask_list)
     dataset = MyDataset(file_list, mask_list, new_size, height, width)
     loader = DataLoader(
         dataset=dataset,
@@ -699,6 +702,8 @@ def get_config(config):
     with open(config, "r") as stream:
         yml = yaml.safe_load(stream)
         if yml['full_adaptation'] == 1:
+            if yml['data_list_train_a_seg'] or yml['data_list_train_b_seg'] is not None:
+                raise Exception("exit you shouldn't use segmentation mask")
             yml['check_alignment'] = 0
             if yml["recon_mask"] == 1:
                 yml['recon_mask'] = 0

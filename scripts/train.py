@@ -71,7 +71,7 @@ print(config)
 train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(
     config
 )
-
+#If 
 if config["semantic_w"] > 0:
     train_loader_a_w_mask = get_data_loader_mask_and_im(
         config["data_list_train_a"],
@@ -96,7 +96,7 @@ if config["semantic_w"] > 0:
         num_workers=config["num_workers"],
         crop=True,
     )
-
+#If we use synthetic data 
 if config["synthetic_frequency"] > 0:
     synthetic_loader = get_synthetic_data_loader(
         config["data_list_train_a_synth"],
@@ -227,7 +227,7 @@ else:
                 
                 if (iterations + 1) % config["ratio_disc_gen"] == 0:
                     trainer.gen_update(
-                        images_a, images_b, config, mask_a, mask_b, comet_exp
+                        images_a, images_b, config, mask_a, mask_b, comet_exp,synth=0
                     )
                 # Train the cross domain classifier
                 if config["domain_adv_w"] > 0:
@@ -249,7 +249,7 @@ else:
                         # Main training code
                         trainer.dis_update(images_a, images_b, config, comet_exp)
                         trainer.gen_update(
-                            images_a, images_b, config, mask_a, mask_b, comet_exp,synth=True
+                            images_a, images_b, config, mask_a, mask_b, comet_exp,synth=1
                         )
                 
             # Write images

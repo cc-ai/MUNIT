@@ -199,7 +199,7 @@ class MUNIT_Trainer(nn.Module):
         return x_ab, x_ba
 
     def gen_update(
-        self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None, synth=False
+        self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None, synth=0
     ):
         """
         Update the generator parameters
@@ -255,6 +255,7 @@ class MUNIT_Trainer(nn.Module):
         elif self.gen_state == 1:
             # encode
             c_a, s_a_prime = self.gen.encode(x_a, 1)
+            print(c_a.shape)
             c_b, s_b_prime = self.gen.encode(x_b, 2)
             # decode (within domain)
             x_a_recon = self.gen.decode(c_a, s_a_prime, 1)
@@ -400,7 +401,7 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg.cpu().detach())
             if hyperparameters["domain_adv_w"] > 0:
                 comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss.cpu().detach())
-            if synth:
+            if synth == 0:
                 comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth.cpu().detach())
 
     def compute_vgg_loss(self, vgg, img, target):
