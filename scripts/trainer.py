@@ -570,7 +570,7 @@ class MUNIT_Trainer(nn.Module):
     
     def segmentation_map(self, img1, mask=None):
         """
-        Compute semantic segmentation loss between two images on the unmasked region or in the entire image
+        Compute semantic segmentation maps
         Arguments:
             img1 {torch.Tensor} -- Image from domain A after transform in tensor format
             img2 {torch.Tensor} -- Image transformed
@@ -588,9 +588,14 @@ class MUNIT_Trainer(nn.Module):
         target = (
            self.segmentation_model(input_transformed1).max(1)[1]
         )
-
-        # Resize mask to the size of the image
-        mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+        bs,h,w = target.size()
+        if mask is not None:
+            # Resize mask to the size of the image
+            mask1 = torch.nn.functional.interpolate(mask, size=(h,w))
+        else:
+            mask1 = torch.zeros(bs,h,w)
+            for p in [0,1,9]: 
+                mask1 += torch.tensor(target==p,dtype=torch.float)
         mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
         mask1_tensor = mask1_tensor.squeeze(1)
         # we want the masked region to be labeled as unknown (19  ground)
@@ -598,7 +603,7 @@ class MUNIT_Trainer(nn.Module):
         target_with_mask_ground = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
         target_with_mask_water  = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 20
         
-        bs,h,w = target_with_mask_water.size()
+        # bs,h,w = target_with_mask_water.size()
         
         input_label_ground = torch.cuda.FloatTensor(bs, 21, h, w).zero_()
         input_sem_ground   = input_label_ground.scatter_(1, target_with_mask_ground.unsqueeze(1), 1.0)
