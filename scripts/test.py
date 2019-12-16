@@ -24,6 +24,7 @@ parser.add_argument("--output_folder", type=str, help="output image directory")
 parser.add_argument("--checkpoint", type=str, help="checkpoint of generator")
 parser.add_argument("--style", type=str, default="", help="style image path")
 parser.add_argument("--seed", type=int, default=10, help="random seed")
+parser.add_argument("--spade", action="store_true", help = "Whether we use a spade model")
 
 parser.add_argument(
     "--synchronized",
@@ -82,48 +83,106 @@ list_non_flooded = glob.glob(opts.input+'*')
 if len(list_non_flooded) ==0:
     sys.exit('Image list is empty. Please ensure opts.input ends with a /')
 
-# Inference
-with torch.no_grad():
-    # Define the transform to infer with the generator
-    transform = transforms.Compose(
-        [
-            transforms.Resize(new_size),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]
-    )
-    # Load and Transform the Style Image
-    style_image = (
-        Variable(transform(Image.open(opts.style).convert("RGB")).unsqueeze(0).cuda())
-    )
-    # Extract the style from the Style Image
-    _, s_b = trainer.gen.encode(style_image, 2)
-    
-    for j in tq.tqdm(range(len(list_non_flooded))):
-        
-        # Define image path
-        path_xa = list_non_flooded[j]
-        
-        # Load and transform the non_flooded image
-        x_a = Variable(
-            transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
+if opts.spade:
+    # Inference
+    with torch.no_grad():
+        # Define the transform to infer with the generator
+        transform = transforms.Compose(
+            [
+                transforms.Resize(new_size),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
         )
-        if opts.save_input:
-            inputs = (x_a + 1) / 2.0
-            path = os.path.join(opts.output_folder, "input{:03d}.jpg".format(j))
-            vutils.save_image(inputs.data, path, padding=0, normalize=True)
+        transform2 = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
+        )
+        for j in tq.tqdm(range(len(list_non_flooded))):
+
+            # Define image path
+            path_xa = list_non_flooded[j]
+
+            # Load and transform the non_flooded image
+            x_a = Variable(
+                transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
+            )
+            x_a_not_resized = Variable(
+                transform2(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
+            )
+            if opts.save_input:
+                inputs = (x_a + 1) / 2.0
+                path = os.path.join(opts.output_folder, "input{:03d}.jpg".format(j))
+                vutils.save_image(inputs.data, path, padding=0, normalize=True)
+
+            # Extract content and style
+            c_a = trainer.gen.encode(x_a, 1)
             
-        # Extract content and style
-        c_a, _ = trainer.gen.encode(x_a, 1)
-        
-        # Perform cross domain translation
-        x_ab = trainer.gen.decode(c_a, s_b, 2)
+            # Extract the segmap
+            seg_a, seg_ab = trainer.segmentation_map(x_a_not_resized)
+            
 
-        # Denormalize .Normalize(0.5,0.5,0.5)...
-        outputs = (x_ab + 1) / 2.0
+            
+            print('c_a.size',c_a.size())
+            print('seg_ab.size', seg_ab.size())
+            
+            # Perform cross domain translation
+            x_ab = trainer.gen.decode(c_a, seg_ab, 2)
 
-        # Define output path
-        path = os.path.join(opts.output_folder, "output{:03d}.jpg".format(j))
+            # Denormalize .Normalize(0.5,0.5,0.5)...
+            outputs = (x_ab + 1) / 2.0
 
-        # Save image 
-        vutils.save_image(outputs.data, path, padding=0, normalize=True)
+            # Define output path
+            path = os.path.join(opts.output_folder, "output{:03d}.jpg".format(j))
+
+            # Save image 
+            vutils.save_image(outputs.data, path, padding=0, normalize=True)    
+    
+else:
+    # Inference
+    with torch.no_grad():
+        # Define the transform to infer with the generator
+        transform = transforms.Compose(
+            [
+                transforms.Resize(new_size),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
+        )
+        # Load and Transform the Style Image
+        style_image = (
+            Variable(transform(Image.open(opts.style).convert("RGB")).unsqueeze(0).cuda())
+        )
+        # Extract the style from the Style Image
+        _, s_b = trainer.gen.encode(style_image, 2)
+
+        for j in tq.tqdm(range(len(list_non_flooded))):
+
+            # Define image path
+            path_xa = list_non_flooded[j]
+
+            # Load and transform the non_flooded image
+            x_a = Variable(
+                transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
+            )
+            if opts.save_input:
+                inputs = (x_a + 1) / 2.0
+                path = os.path.join(opts.output_folder, "input{:03d}.jpg".format(j))
+                vutils.save_image(inputs.data, path, padding=0, normalize=True)
+
+            # Extract content and style
+            c_a, _ = trainer.gen.encode(x_a, 1)
+
+            # Perform cross domain translation
+            x_ab = trainer.gen.decode(c_a, s_b, 2)
+
+            # Denormalize .Normalize(0.5,0.5,0.5)...
+            outputs = (x_ab + 1) / 2.0
+
+            # Define output path
+            path = os.path.join(opts.output_folder, "output{:03d}.jpg".format(j))
+
+            # Save image 
+            vutils.save_image(outputs.data, path, padding=0, normalize=True)

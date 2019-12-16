@@ -605,7 +605,7 @@ class SpadeDecoder(nn.Module):
                 ),
             ]
             dim //= 2
-        # use reflection padding in the last conv layer
+        # Use reflection padding in the last conv layer
         self.model += [
             Conv2dBlock(
                 dim,

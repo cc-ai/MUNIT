@@ -293,8 +293,8 @@ class MUNIT_Trainer(nn.Module):
                 else None
             )
         elif self.gen_state == 2:
-            seg_a, seg_ab = self.segmentation_map(x_a, mask_a)
-            seg_ba, seg_b = self.segmentation_map(x_b, mask_b)
+            seg_a, seg_ab = self.segmentation_map(x_a, mask_a, atob = True)
+            seg_ba, seg_b = self.segmentation_map(x_b, mask_b, atob = False)
             # encode
             c_a = self.gen.encode(x_a, 1)
             c_b = self.gen.encode(x_b, 2)
@@ -568,7 +568,7 @@ class MUNIT_Trainer(nn.Module):
             )
         return loss
     
-    def segmentation_map(self, img1, mask=None):
+    def segmentation_map(self, img1, mask=None, atob=True):
         """
         Compute semantic segmentation maps
         Arguments:
@@ -600,17 +600,23 @@ class MUNIT_Trainer(nn.Module):
         mask1_tensor = mask1_tensor.squeeze(1)
         # we want the masked region to be labeled as unknown (19  ground)
         # we want the masked region to be labeled as unknown (20  water)
-        target_with_mask_ground = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
-        target_with_mask_water  = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 20
         
-        # bs,h,w = target_with_mask_water.size()
-        
+        # V0
+        #target_with_mask_ground = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
+        #target_with_mask_water  = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 20
         input_label_ground = torch.cuda.FloatTensor(bs, 21, h, w).zero_()
-        input_sem_ground   = input_label_ground.scatter_(1, target_with_mask_ground.unsqueeze(1), 1.0)
-        
         input_label_water  = torch.cuda.FloatTensor(bs, 21, h, w).zero_()
-        input_sem_water    = input_label_water.scatter_(1, target_with_mask_water.unsqueeze(1), 1.0)
-        
+        if atob:
+            
+            input_sem_ground   = input_label_ground.scatter_(1, target.unsqueeze(1), 1.0)
+            input_sem_ground[:,19,:,:] = mask1_tensor
+            input_sem_water    = input_label_water.scatter_(1, target.unsqueeze(1), 1.0)
+            input_sem_water[:,20,:,:] = mask1_tensor
+        else:
+            target_with_mask_water= torch.mul(1 - mask1_tensor, target) + mask1_tensor * 20
+            input_sem_water    = input_label_water.scatter_(1, target_with_mask_water.unsqueeze(1), 1.0)
+            input_sem_ground = input_label_water.scatter_(1, target_with_mask_water.unsqueeze(1), 1.0)
+            input_sem_ground[:,19,:,:] = mask1_tensor
         return input_sem_ground, input_sem_water
 
     def sample(self, x_a, x_b, mask_a=None, mask_b=None):
@@ -688,8 +694,8 @@ class MUNIT_Trainer(nn.Module):
                     print("self.guided unknown value:", self.guided)
                     
         elif self.gen_state == 2:
-            seg_a, seg_ab = self.segmentation_map(x_a, mask_a)
-            seg_ba, seg_b = self.segmentation_map(x_b, mask_b)
+            seg_a, seg_ab = self.segmentation_map(x_a, mask_a, atob = True)
+            seg_ba, seg_b = self.segmentation_map(x_b, mask_b, atob = False)
             for i in range(x_a.size(0)):
                 # encode
                 c_a = self.gen.encode(x_a[i].unsqueeze(0), 1)
@@ -880,9 +886,9 @@ class MUNIT_Trainer(nn.Module):
                 print("self.guided unknown value:", self.guided)
         elif self.gen_state == 2:
             # Define the segmentation Map
-            seg_a, seg_ab = self.segmentation_map(x_a, mask_a)
-            seg_ba, seg_b = self.segmentation_map(x_b, mask_b)
-            
+            seg_a, seg_ab = self.segmentation_map(x_a, mask_a, atob = True)
+            seg_ba, seg_b = self.segmentation_map(x_b, mask_b, atob = False)
+
             # Encode
             c_a = self.gen.encode(x_a, 1)
             c_b = self.gen.encode(x_b, 2)
