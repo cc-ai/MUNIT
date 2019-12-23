@@ -79,8 +79,17 @@ For more information, [see docs](https://www.comet.ml/docs/python-sdk/advanced/#
 
 https://docs.google.com/spreadsheets/d/1Csdi2B-LJPChLwO1ng4i2sjPgQxrNRlempa05o3a7og/edit?usp=sharing
 
+### How to reproduce an experiment ?
+- Open the link to the comet-ML experiment
+- Go to Hyper Parameters to find the git_hash
+- Go to assets and download the config.yaml
+- Roll back to github version corresponding to the git_hash [useful docs](https://githowto.com/getting_old_versions)
+
+If one wants to use the checkpoints, they can be found in the output path written in hyperparameters. For some reasons they might have been moved to a commonly used folder: ccai/checkpoints/archive_XX 
 
 ## Branches
 
-Master is the main branch, code that is meant to be deployed on the https://climatechangeai.org
-feature/cocoStuff_merged_logits is a branch where we merged several classes of cocostuff so that we have a semantic segmentation consistency that is able to detect water properly. See utils.py and the assignment_dir function. 
+- Master is the main branch, code that is meant to be deployed on the https://climatechangeai.org
+- feature/cocoStuff_merged_logits is a branch where we merged several classes of cocostuff so that we have a semantic segmentation consistency that is able to detect water properly. See utils.py and the assignment_dir function. 
+- feature/highres is an attempt of using pix2pix upsampling in our settings with some major modifications.
+- feature/SpadeResBlock replaces the ResBlocks with SpadeResBlocks. The AdaIN coefficients are not computed from a style image but from the semantic segmentation of the image to be translated. 
