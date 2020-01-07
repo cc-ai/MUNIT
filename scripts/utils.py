@@ -255,6 +255,7 @@ def default_txt_reader(flist):
         list of strings, each corresponding to one line of the input file
     """
     imlist = []
+    print(flist)
     with open(flist, "r") as rf:
         for line in rf.readlines():
             impath = line.strip().split()
@@ -268,7 +269,12 @@ class MyDataset(Dataset):
     """
     def __init__(self, file_list, mask_list, new_size, height, width):
         self.image_paths = default_txt_reader(file_list)
-        self.target_paths = default_txt_reader(mask_list)
+        if mask_list is not None: 
+            self.target_paths = default_txt_reader(mask_list)
+            print("Segmentation mask will be used")
+        else:
+            self.target_paths = None
+            print("No segmentation mask")
         self.new_size = new_size
         self.height = height
         self.width = width
@@ -284,39 +290,41 @@ class MyDataset(Dataset):
         Returns:
             image, mask {Image, Image} -- transformed image and mask
         """
+        flip = False
         # Random horizontal flipping
         if torch.rand(1) > 0.5:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
-
+            flip = True
         # print('debugging mask transform 2 size',mask.size)
         # Resize
         resize = transforms.Resize(size=self.new_size)
         image = resize(image)
-        # print('dim image after resize',image.size)
-
-        # Resize mask
-
-        mask = mask.resize((image.width, image.height), Image.NEAREST)
-
-        # print('debugging mask transform 3 size',mask.size)
+        to_tensor = transforms.ToTensor()
         # Random crop
         i, j, h, w = transforms.RandomCrop.get_params(
             image, output_size=(self.height, self.width)
         )
         image = F.crop(image, i, j, h, w)
-        mask = F.crop(mask, i, j, h, w)
+        
+        if type(mask) is not torch.Tensor:
+            # Resize mask
+            if flip == True:
+                mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
+                
+            mask = mask.resize((image.width, image.height), Image.NEAREST)
 
-        # print('debugging mask transform 4 size',mask.size)
+            mask = F.crop(mask, i, j, h, w)
+            if np.max(mask) == 1:
+                mask = to_tensor(mask) * 255
+            else:
+                mask = to_tensor(mask)
+            
+            # print('debugging mask transform 4 size',mask.size)
+        
         # Transform to tensor
-        to_tensor = transforms.ToTensor()
+        
         image = to_tensor(image)
-
-        if np.max(mask) == 1:
-            mask = to_tensor(mask) * 255
-        else:
-            mask = to_tensor(mask)
-
+        
         # print('debugging mask transform 5 size',mask.size)
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
@@ -333,10 +341,14 @@ class MyDataset(Dataset):
             image, mask pair
         """
         image = Image.open(self.image_paths[index][0]).convert("RGB")
-        mask = Image.open(self.target_paths[index][0])
+        if self.target_paths is not None:
+            mask = Image.open(self.target_paths[index][0])
+        else:
+            mask = torch.tensor([])
         x, y = self.transform(image, mask)
-        return x, y
-
+        
+        return x,y
+    
     def __len__(self):
         """return dataset length
         
@@ -768,102 +780,6 @@ def prepare_sub_folder(output_directory):
         print("Creating directory: {}".format(checkpoint_directory))
         os.makedirs(checkpoint_directory)
     return checkpoint_directory, image_directory
-
-
-def write_one_row_html(html_file, iterations, img_filename, all_size):
-    """Write one HTML row with specified image
-    
-    Arguments:
-        html_file {str} -- html filename
-        iterations {int} -- iteration (step) corresponding to the image
-        img_filename {str} -- image filename
-        all_size {int} -- width in pixels of the displayed image
-    """
-    html_file.write(
-        "<h3>iteration [%d] (%s)</h3>" % (iterations, img_filename.split("/")[-1])
-    )
-    html_file.write(
-        """
-        <p><a href="%s">
-          <img src="%s" style="width:%dpx">
-        </a><br>
-        <p>
-        """
-        % (img_filename, img_filename, all_size)
-    )
-    return
-
-
-def write_html(
-    filename, iterations, image_save_iterations, image_directory, all_size=1536
-):
-    """Write HTML to display experiments' results (images).
-    The images displayed will be those from both worlds A and B in the GAN cycle
-    taken every image_save_iterations until step interations. 
-
-    Arguments:
-        filename {str} -- HTML filename
-        iterations {int} -- iteration corresponding to the last image to be saved
-        image_save_iterations {int} -- number of iterations between each saved image
-        image_directory {str} -- image diretory
-    
-    Keyword Arguments:
-        all_size {int} -- width in pixels of the images to be displayed(default: {1536})
-    """
-    html_file = open(filename, "w")
-    html_file.write(
-        """
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Experiment name = %s</title>
-      <meta http-equiv="refresh" content="30">
-    </head>
-    <body>
-    """
-        % os.path.basename(filename)
-    )
-    html_file.write("<h3>current</h3>")
-    write_one_row_html(
-        html_file,
-        iterations,
-        "%s/gen_a2b_train_current.jpg" % (image_directory),
-        all_size,
-    )
-    write_one_row_html(
-        html_file,
-        iterations,
-        "%s/gen_b2a_train_current.jpg" % (image_directory),
-        all_size,
-    )
-    for j in range(iterations, image_save_iterations - 1, -1):
-        if j % image_save_iterations == 0:
-            write_one_row_html(
-                html_file,
-                j,
-                "%s/gen_a2b_test_%08d.jpg" % (image_directory, j),
-                all_size,
-            )
-            write_one_row_html(
-                html_file,
-                j,
-                "%s/gen_b2a_test_%08d.jpg" % (image_directory, j),
-                all_size,
-            )
-            write_one_row_html(
-                html_file,
-                j,
-                "%s/gen_a2b_train_%08d.jpg" % (image_directory, j),
-                all_size,
-            )
-            write_one_row_html(
-                html_file,
-                j,
-                "%s/gen_b2a_train_%08d.jpg" % (image_directory, j),
-                all_size,
-            )
-    html_file.write("</body></html>")
-    html_file.close()
 
 
 def write_loss(iterations, trainer, train_writer):
