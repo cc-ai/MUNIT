@@ -424,6 +424,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_total.backward()
         self.gen_opt.step()
         
+        print(comet_exp)
         if comet_exp is not None:
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a.cpu().detach())
             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b.cpu().detach())

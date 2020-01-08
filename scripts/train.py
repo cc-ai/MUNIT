@@ -4,7 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
 from comet_ml import Experiment
 
-comet_exp =Experiment(api_key="3YHNG4OA9ZIUdtWVXZ3YQC4Ta",
+comet_exp = Experiment(api_key="3YHNG4OA9ZIUdtWVXZ3YQC4Ta",
                         project_name="munit_sim2real_adv", workspace="adrienju")
 
 from utils import (
@@ -96,7 +96,7 @@ if config["semantic_w"] > 0:
         num_workers=config["num_workers"],
         crop=True,
     )
-
+"""
 synthetic_loader = get_synthetic_data_loader(
     config["data_list_train_a_synth"],
     config["data_list_train_b_synth"],
@@ -109,17 +109,7 @@ synthetic_loader = get_synthetic_data_loader(
     num_workers=config["num_workers"],
     crop=True,
 )
-    
-if config["eval_fid"] > 0:
-    fid_loader   = get_fid_data_loader(
-        config["data_list_fid_a"],
-        config["data_list_fid_b"],
-        config["batch_size_fid"],
-        train=False,
-        new_size = config["new_size"],
-        num_workers=config["num_workers"]
-    )
-    get_inception_metrics = prepare_inception_metrics(inception_moment=config["inception_moment_path"],parallel=False)
+"""    
     
 train_display_images_a = torch.stack(
     [train_loader_a.dataset[i] for i in range(display_size)]
@@ -146,103 +136,74 @@ shutil.copy(
 iterations = (
     trainer.resume(checkpoint_directory, hyperparameters=config) if opts.resume else 0
 )
+while True:
+    for it, ((images_a), (images_b)) in enumerate(
+        zip(train_loader_a, train_loader_b)
+    ):
+        trainer.update_learning_rate()
+        images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
+        mask_a, mask_b = None, None
+        #mask_a, mask_b = mask_a.cuda().detach(), mask_b.cuda().detach()
+        #images_as, images_bs, mask_s = images_as.cuda().detach(), images_bs.cuda().detach(), mask_s.cuda().detach()
 
-if config["semantic_w"] != 0:
-    while True:
-        for it, ((images_a, mask_a), (images_b, mask_b),(images_as, images_bs, mask_s)) in enumerate(
-            zip(train_loader_a_w_mask, train_loader_b_w_mask, synthetic_loader)
-        ):
-            trainer.update_learning_rate()
-            images_a, images_b = images_a.cuda().detach(), images_b.cuda().detach()
-            mask_a, mask_b = mask_a.cuda().detach(), mask_b.cuda().detach()
-            images_as, images_bs, mask_s = images_as.cuda().detach(), images_bs.cuda().detach(), mask_s.cuda().detach()
+        with Timer("Elapsed time in update: %f"):
+            # Main training code
+            trainer.dis_update(images_a, images_b, config, comet_exp)
 
-            with Timer("Elapsed time in update: %f"):
-                # Main training code
-                trainer.dis_update(images_a, images_b, config, comet_exp)
-                
-                if (iterations + 1)% config["ratio_disc_gen"] == 0:
-                    trainer.gen_update(
-                        images_a, images_b, config, mask_a, mask_b, comet_exp
-                    )
-                if config["domain_adv_w"] > 0:
-                    trainer.domain_classifier_update(
-                        images_a, images_b, config, comet_exp
-                    )
+            if (iterations + 1) % config["ratio_disc_gen"] == 0:
+                trainer.gen_update(
                     
-                if trainer.use_classifier_sr and (iterations + 1) % config["adaptation"]["classif_frequency"] == 0:
-                    print(iterations + 1)
-                    trainer.domain_classifier_sr_update(
-                        images_a, images_b, False, config["adaptation"]["dfeat_lambda"], iterations+1, comet_exp
-                    )    
-                torch.cuda.synchronize()
-
-            
-            # If the number of iteration match the synthetic frequency
-            # We sample one example of the synthetic paired dataset
+                    images_a, images_b, config, semantic_gt=None, mask_a=None, mask_b=None, comet_exp=comet_exp, synth=False
+                )
            
-            if config["synthetic_frequency"] > 0:
-                if iterations % config["synthetic_frequency"] == 0:
- #                    images_as, images_bs = images_a.cuda().detach(), images_b.cuda().detach()
- #                   mask_s = mask_s.cuda().detach()
+            torch.cuda.synchronize()
 
-                    with Timer("Elapsed time in update: %f"):
-                        # Main training code
-                        trainer.dis_update(images_as, images_bs, config, comet_exp)
-                        #Same mask because we know the area where we want to flood
-                        trainer.gen_update(
-                            images_as, images_bs, config, mask_s, mask_s, comet_exp,True
-                        )
-                        if trainer.use_classifier_sr and (iterations + 1) % config["adaptation"]["classif_frequency"] == 0:
-                            trainer.domain_classifier_sr_update(
-                                images_as, images_bs, True, config["adaptation"]["dfeat_lambda"], iterations+1, comet_exp
-                            )   
-              
-            # Write images
-            if (iterations + 1) % config["image_save_iter"] == 0:
-                with torch.no_grad():
-                    test_image_outputs = trainer.sample(
-                        test_display_images_a, test_display_images_b
-                    )
-                    train_image_outputs = trainer.sample(
-                        train_display_images_a, train_display_images_b
-                    )
-                write_2images(
-                    test_image_outputs,
-                    display_size,
-                    image_directory,
-                    "test_%08d" % (iterations + 1),
-                    comet_exp,
+        # Write images
+        if (iterations + 1) % config["image_save_iter"] == 0:
+            with torch.no_grad():
+                test_image_outputs = trainer.sample(
+                    test_display_images_a, test_display_images_b
                 )
-                write_2images(
-                    train_image_outputs,
-                    display_size,
-                    image_directory,
-                    "train_%08d" % (iterations + 1),
-                    comet_exp,
+                train_image_outputs = trainer.sample(
+                    train_display_images_a, train_display_images_b
                 )
+            write_2images(
+                test_image_outputs,
+                display_size,
+                image_directory,
+                "test_%08d" % (iterations + 1),
+                comet_exp,
+            )
+            write_2images(
+                train_image_outputs,
+                display_size,
+                image_directory,
+                "train_%08d" % (iterations + 1),
+                comet_exp,
+            )
 
-            if (iterations + 1) % config["image_display_iter"] == 0:
-                with torch.no_grad():
-                    image_outputs = trainer.sample(
-                        train_display_images_a, train_display_images_b
-                    )
-                write_2images(
-                    image_outputs,
-                    display_size,
-                    image_directory,
-                    "train_current",
-                    comet_exp,
+        if (iterations + 1) % config["image_display_iter"] == 0:
+            with torch.no_grad():
+                image_outputs = trainer.sample(
+                    train_display_images_a, train_display_images_b
                 )
+            write_2images(
+                image_outputs,
+                display_size,
+                image_directory,
+                "train_current",
+                comet_exp,
+            )
 
-            # Save network weights
-            if (iterations + 1) % config["snapshot_save_iter"] == 0:
-                
-                trainer.save(checkpoint_directory, iterations)
+        # Save network weights
+        if (iterations + 1) % config["snapshot_save_iter"] == 0:
 
-            iterations += 1
-            if iterations >= max_iter:
-                sys.exit("Finish training")
+            trainer.save(checkpoint_directory, iterations)
+
+        iterations += 1
+        
+        if iterations >= max_iter:
+            sys.exit("Finish training")
 
 
                                            
