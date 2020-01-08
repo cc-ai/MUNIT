@@ -4,8 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
 from comet_ml import Experiment
 
-comet_exp = Experiment(api_key="3YHNG4OA9ZIUdtWVXZ3YQC4Ta",
-                        project_name="munit_sim2real_adv", workspace="adrienju")
+comet_exp = Experiment() #Fill with use API key or use .comet.config
 
 from utils import (
     get_all_data_loaders,

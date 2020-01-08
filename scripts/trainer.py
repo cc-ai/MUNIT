@@ -424,7 +424,6 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_total.backward()
         self.gen_opt.step()
         
-        print(comet_exp)
         if comet_exp is not None:
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a.cpu().detach())
             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b.cpu().detach())
@@ -568,11 +567,9 @@ class MUNIT_Trainer(nn.Module):
         #   self.segmentation_model(input_transformed1).max(1)[1]
         #)
         output = self.segmentation_model(input_transformed2)
-        print(output.shape, target.shape)
         
         if ground_truth is not None:
             output = ground_truth
-            print("GT SYN")
   
         else:
             target = (self.segmentation_model(input_transformed1).max(1)[1])
@@ -627,7 +624,6 @@ class MUNIT_Trainer(nn.Module):
         if self.gen_state == 0:
             for i in range(x_a.size(0)):
                 c_a, s_a_fake = self.gen_a.encode(x_a[i].unsqueeze(0))
-                print(c_a.shape)
                 c_b, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
                 x_a_recon.append(self.gen_a.decode(c_a, s_a_fake))
                 x_b_recon.append(self.gen_b.decode(c_b, s_b_fake))
