@@ -51,13 +51,11 @@ if comet_exp is not None:
     comet_exp.log_parameter("git_hash", opts.git_hash)
     
 cudnn.benchmark = True
-print('yo')
 # Load experiment setting
 config = get_config(opts.config)
 max_iter = config["max_iter"]
 display_size = config["display_size"]
 config["vgg_model_path"] = opts.output_path
-print('yo')
 
 # Setup model and data loader
 if opts.trainer == "MUNIT":
@@ -71,7 +69,6 @@ trainer.cuda()
 train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(
     config
 )
-print('yo')
 
 
 print("LEN", len(train_loader_a), len(train_loader_b),len(test_loader_a),len(test_loader_b))
@@ -192,6 +189,7 @@ if config["semantic_w"] != 0:
                     with Timer("Elapsed time in update: %f"):
                         # Main training code
                         trainer.dis_update(images_as, images_bs, config, comet_exp)
+                        #Same mask because we know the area where we want to flood
                         trainer.gen_update(
                             images_as, images_bs, config, mask_s, mask_s, comet_exp,True
                         )

@@ -225,7 +225,7 @@ class MUNIT_Trainer(nn.Module):
         return x_ab, x_ba
 
     def gen_update(
-        self, x_a, x_b, hyperparameters, mask_a=None, mask_b=None, comet_exp=None, synth=False
+        self, x_a, x_b, hyperparameters, semantic_gt=None, mask_a=None, mask_b=None, comet_exp=None, synth=False
     ):
         """
         Update the generator parameters
@@ -382,8 +382,8 @@ class MUNIT_Trainer(nn.Module):
 
         # semantic-segmentation loss
         self.loss_sem_seg = (
-            self.compute_semantic_seg_loss(x_a, x_ab, mask_a)
-            + self.compute_semantic_seg_loss(x_b, x_ba, mask_b)
+            self.compute_semantic_seg_loss(x_a, x_ab, mask_a, semantic_gt)
+            + self.compute_semantic_seg_loss(x_b, x_ba, mask_b, semantic_gt)
             if hyperparameters["semantic_w"] > 0
             else 0
         )
@@ -543,13 +543,14 @@ class MUNIT_Trainer(nn.Module):
         else:
             return loss
 
-    def compute_semantic_seg_loss(self, img1, img2, mask=None):
+    def compute_semantic_seg_loss(self, img1, img2, mask=None, ground_truth=None):
         """
         Compute semantic segmentation loss between two images on the unmasked region or in the entire image
         Arguments:
             img1 {torch.Tensor} -- Image from domain A after transform in tensor format
             img2 {torch.Tensor} -- Image transformed
             mask {torch.Tensor} -- Binary mask where we force the loss to be zero
+            ground_truth {torch.Tensor} -- If available palletized image of size (batch, h, w) 
         Returns:
             torch.float -- Cross entropy loss on the unmasked region
         """
@@ -562,11 +563,19 @@ class MUNIT_Trainer(nn.Module):
         input_transformed2 = seg_batch_transform(img2_denorm)
         
         # compute labels from original image and logits from translated version
-        target = (
-           self.segmentation_model(input_transformed1).max(1)[1]
-        )
+        #target = (
+        #   self.segmentation_model(input_transformed1).max(1)[1]
+        #)
         output = self.segmentation_model(input_transformed2)
+        print(output.shape, target.shape)
         
+        if ground_truth is not None:
+            output = ground_truth
+            print("GT SYN")
+  
+        else:
+            target = (self.segmentation_model(input_transformed1).max(1)[1])
+
         if not self.full_adaptation and mask is not None:
             # Resize mask to the size of the image
             mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
@@ -587,6 +596,7 @@ class MUNIT_Trainer(nn.Module):
             loss = nn.CrossEntropyLoss()(
                output_with_mask_cat, target_with_mask
             )
+        
         else:
             loss = nn.CrossEntropyLoss()(
                output, target
