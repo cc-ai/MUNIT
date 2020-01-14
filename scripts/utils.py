@@ -1282,7 +1282,7 @@ class domainClassifier(nn.Module):
         self.max_pool2 = nn.MaxPool2d(2)
         self.BasicBlock2 = BasicBlock(128, 64, True)
         self.avg_pool = nn.AvgPool2d((16, 16))
-        self.fc = nn.Linear(64, 2)
+        self.fc = nn.Linear(64, 1)
         self.output_dim = dim
 
     def forward(self, x):
@@ -1292,5 +1292,7 @@ class domainClassifier(nn.Module):
         res_block2 = self.BasicBlock2(max_pooled2)
         avg_pool = self.avg_pool(res_block2)
         fc_output = self.fc(avg_pool.squeeze())
-        logits = nn.functional.softmax(fc_output)
-        return logits
+        #print(fc_output.shape)
+        #logits = nn.functional.softmax(fc_output)
+        #return logits
+        return fc_output

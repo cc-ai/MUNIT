@@ -48,7 +48,7 @@ class MUNIT_Trainer(nn.Module):
         else: 
             self.use_classifier_sr = False
         
-        if hyperparameters['adaptation']['output_classifier'] > 0:
+        if hyperparameters['adaptation']['output_classifier_lambda'] > 0:
             self.use_output_classifier_sr = True
         else: 
             self.use_output_classifier_sr = False
@@ -147,6 +147,7 @@ class MUNIT_Trainer(nn.Module):
             self.domain_classifier_ab.apply(weights_init("gaussian"))
             self.dann_scheduler = get_scheduler(self.dann_opt, hyperparameters)
          
+        # Load classifier on features for syn, real adaptation
         if self.use_classifier_sr:
             
             self.domain_classifier_sr_b = domainClassifier(256)
@@ -163,9 +164,23 @@ class MUNIT_Trainer(nn.Module):
             self.classif_sr_scheduler = get_scheduler(self.classif_opt_sr, hyperparameters)
             
         if self.use_output_classifier_sr:
-            self.use_output_classifier_sr = MsImageDis(
+            self.output_classifier_sr_a = MsImageDis(
             hyperparameters["input_dim_a"], hyperparameters["dis"]
-        )  # discriminator for domain a
+            )  # discriminator for domain a,sr
+            self.output_classifier_sr_b = MsImageDis(
+            hyperparameters["input_dim_a"], hyperparameters["dis"]
+            )  # discriminator for domain b,sr
+            dann_params = list(self.output_classifier_sr_a.parameters()) + list(self.output_classifier_sr_b.parameters())
+            self.output_classif_opt_sr = torch.optim.Adam(
+                [p for p in dann_params if p.requires_grad],
+                lr=lr,
+                betas=(beta1, beta2),
+                weight_decay=hyperparameters["weight_decay"],
+            )
+            self.output_classifier_sr_b.apply(weights_init("gaussian"))
+            self.output_classifier_sr_a.apply(weights_init("gaussian"))
+            self.output_scheduler_sr = get_scheduler(self.output_classif_opt_sr, hyperparameters)
+
 
     def recon_criterion(self, input, target):
         """
@@ -225,7 +240,7 @@ class MUNIT_Trainer(nn.Module):
         return x_ab, x_ba
 
     def gen_update(
-        self, x_a, x_b, hyperparameters, semantic_gt=None, mask_a=None, mask_b=None, comet_exp=None, synth=False
+        self, x_a, x_b, hyperparameters ,mask_a=None, mask_b=None, comet_exp=None, synth=False, semantic_gt= None
     ):
         """
         Update the generator parameters
@@ -396,11 +411,18 @@ class MUNIT_Trainer(nn.Module):
         )
         
         self.loss_classifier_sr = (
-            self.compute_classifier_sr_loss(c_a, c_b, domain_synth=synth, fool = True)
+            self.compute_classifier_sr_loss(c_a, c_b, domain_synth=synth, fool=True)
             if hyperparameters["adaptation"]["adv_lambda"] > 0
             else 0
         )
-
+        
+        if hyperparameters["adaptation"]["output_adv_lambda"] > 0:
+            self.loss_output_classifier_sr = self.output_classifier_sr_a.calc_gen_loss_sr(x_ba) + self.output_classifier_sr_b.calc_gen_loss_sr(x_ab)
+        
+        else:
+        
+            self.loss_output_classifier_sr = 0
+        
         # total loss
         self.loss_gen_total = (
             hyperparameters["gan_w"] * self.loss_gen_adv_a
@@ -418,7 +440,8 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["semantic_w"] * self.loss_sem_seg
             + hyperparameters["domain_adv_w"] * self.domain_adv_loss
             + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
-            + hyperparameters["adaptation"]["adv_lambda"] * self.loss_classifier_sr 
+            + hyperparameters["adaptation"]["adv_lambda"] * self.loss_classifier_sr
+            + hyperparameters["adaptation"]["output_adv_lambda"] * self.loss_output_classifier_sr 
         )
         
         self.loss_gen_total.backward()
@@ -447,6 +470,10 @@ class MUNIT_Trainer(nn.Module):
                 comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth.cpu().detach())
             if self.use_classifier_sr:
                 comet_exp.log_metric("loss_classifier_adv_sr", self.loss_classifier_sr.cpu().detach())
+            if self.use_output_classifier_sr:
+                comet_exp.log_metric("loss_output_classifier_adv_sr", self.loss_output_classifier_sr.cpu().detach())
+
+                
 
                 
 
@@ -472,12 +499,13 @@ class MUNIT_Trainer(nn.Module):
     
     def compute_classifier_sr_loss(self, c_a, c_b, domain_synth=False, fool=False):
         """ 
-        Compute the domain-invariant perceptual loss
+        Compute classifier loss for the adaptation s/r 
         
         Arguments:
-            vgg {model} -- popular Convolutional Network for Classification and Detection
-            img {torch.Tensor} -- image before translation
-            target {torch.Tensor} -- image after translation
+            c_a {torch.Tensor} -- content of x_a
+            c_b {torch.Tensor} -- content of x_b
+            domain_synth {Boolean} -- Whether if the content is from s or r
+            fool {Boolean} -- Wheter we want to fool the classifier or not 
         
         Returns:
             torch.Float -- domain invariant perceptual loss
@@ -486,22 +514,18 @@ class MUNIT_Trainer(nn.Module):
         output_a = self.domain_classifier_sr_a(c_a)
 
         # Infer domain classifier on content extracted from an image of domainB
-        output_b = self.domain_classifier_sr_b(c_b)
-
-        # Concatenate the output in a single vector
-        output = torch.cat([output_a, output_b])       
+        output_b = self.domain_classifier_sr_b(c_b)  
     
         if fool:
-            target = torch.tensor([0.5,0.5,0.5,0.5], device='cuda')
-        else:
+            loss = torch.mean((output_a - 0.5) ** 2) + torch.mean((output_b - 0.5) ** 2)
+
+        else:            
             if domain_synth:
-                
-                target = torch.tensor([1.,0.,1.,0.], device='cuda') 
+                loss = torch.mean((output_a - 0) ** 2) + torch.mean((output_b - 0) ** 2)
+
             else: 
-                target = torch.tensor([0.,1.,0.,1.], device='cuda') 
-        # mean square error loss
-        loss = torch.nn.MSELoss()(output,target)
-       
+                loss = torch.mean((output_a - 1) ** 2) + torch.mean((output_b - 1) ** 2)
+
         return loss
         
         
@@ -567,11 +591,9 @@ class MUNIT_Trainer(nn.Module):
         #   self.segmentation_model(input_transformed1).max(1)[1]
         #)
         output = self.segmentation_model(input_transformed2)
-        print(output.shape, target.shape)
         
         if ground_truth is not None:
             output = ground_truth
-            print("GT SYN")
   
         else:
             target = (self.segmentation_model(input_transformed1).max(1)[1])
@@ -928,6 +950,7 @@ class MUNIT_Trainer(nn.Module):
         else:
             print("self.gen_state unknown value:", self.gen_state)
         
+        #noise = c_a.data.new(c_a.size()).normal_(0, 1)
         loss = self.compute_classifier_sr_loss(c_a.detach(), c_b.detach(), domain_synth, fool=False)
         loss = lambda_classifier * loss
         loss.backward()
@@ -935,6 +958,20 @@ class MUNIT_Trainer(nn.Module):
         
         if comet_exp is not None:
             comet_exp.log_metric("loss_classifier_sr", loss.cpu().detach(), step=step)
+            
+            
+    def output_domain_classifier_sr_update(self, x_ar, x_as, x_br, x_bs, hyperparameters, step, comet_exp=None): 
+        
+        self.output_classif_opt_sr.zero_grad()
+        
+        loss = self.output_classifier_sr_b.calc_dis_loss_sr(x_bs, x_br) + self.output_classifier_sr_a.calc_dis_loss_sr(x_as, x_ar)
+        loss = hyperparameters["adaptation"]["output_classifier_lambda"] * loss
+        loss.backward()
+        
+        self.output_classif_opt_sr.step()
+        
+        if comet_exp is not None:
+            comet_exp.log_metric("loss_output_classifier_sr", loss.cpu().detach(), step=step)
         
     
     def update_learning_rate(self):

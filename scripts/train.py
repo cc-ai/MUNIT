@@ -4,8 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
 from comet_ml import Experiment
 
-comet_exp =Experiment(api_key="3YHNG4OA9ZIUdtWVXZ3YQC4Ta",
-                        project_name="munit_sim2real_adv", workspace="adrienju")
+comet_exp = Experiment()
 
 from utils import (
     get_all_data_loaders,
@@ -70,8 +69,6 @@ train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_load
     config
 )
 
-
-print("LEN", len(train_loader_a), len(train_loader_b),len(test_loader_a),len(test_loader_b))
 if config["semantic_w"] > 0:
     train_loader_a_w_mask = get_data_loader_mask_and_im(
         config["data_list_train_a"],
@@ -160,30 +157,37 @@ if config["semantic_w"] != 0:
             with Timer("Elapsed time in update: %f"):
                 # Main training code
                 trainer.dis_update(images_a, images_b, config, comet_exp)
-                
+                #Gen update
                 if (iterations + 1)% config["ratio_disc_gen"] == 0:
                     trainer.gen_update(
                         images_a, images_b, config, mask_a, mask_b, comet_exp
                     )
+                #Domain classifier update
                 if config["domain_adv_w"] > 0:
                     trainer.domain_classifier_update(
                         images_a, images_b, config, comet_exp
                     )
-                    
+                #Domain classifier s,r update    
                 if trainer.use_classifier_sr and (iterations + 1) % config["adaptation"]["classif_frequency"] == 0:
                     print(iterations + 1)
                     trainer.domain_classifier_sr_update(
                         images_a, images_b, False, config["adaptation"]["dfeat_lambda"], iterations+1, comet_exp
                     )    
+                    
+                #Output domain classifier s,r update    
+                if trainer.use_output_classifier_sr and (iterations + 1) % config["adaptation"]["output_classif_freq"] == 0:
+                    trainer.output_domain_classifier_sr_update(
+                        images_a, images_as, images_b, images_bs, config, iterations+1, comet_exp
+                    )        
+                   
                 torch.cuda.synchronize()
 
             
             # If the number of iteration match the synthetic frequency
             # We sample one example of the synthetic paired dataset
-           
             if config["synthetic_frequency"] > 0:
                 if iterations % config["synthetic_frequency"] == 0:
- #                    images_as, images_bs = images_a.cuda().detach(), images_b.cuda().detach()
+ #                   images_as, images_bs = images_a.cuda().detach(), images_b.cuda().detach()
  #                   mask_s = mask_s.cuda().detach()
 
                     with Timer("Elapsed time in update: %f"):
@@ -191,7 +195,7 @@ if config["semantic_w"] != 0:
                         trainer.dis_update(images_as, images_bs, config, comet_exp)
                         #Same mask because we know the area where we want to flood
                         trainer.gen_update(
-                            images_as, images_bs, config, mask_s, mask_s, comet_exp,True
+                            images_as, images_bs, config, mask_s, mask_s, comet_exp, True, None
                         )
                         if trainer.use_classifier_sr and (iterations + 1) % config["adaptation"]["classif_frequency"] == 0:
                             trainer.domain_classifier_sr_update(
