@@ -17,6 +17,7 @@ from utils import (
     load_segmentation_model,
     decode_segmap,
     domainClassifier,
+    merge_classes
 )
 from torch.autograd import Variable
 from torchvision import transforms
@@ -47,6 +48,11 @@ class MUNIT_Trainer(nn.Module):
             self.use_classifier_sr = True
         else: 
             self.use_classifier_sr = False
+            
+        if hyperparameters['adaptation']['sem_seg_lambda'] > 0:
+            self.train_seg = True
+        else: 
+            self.train_seg = False
         
         if hyperparameters['adaptation']['output_classifier_lambda'] > 0:
             self.use_output_classifier_sr = True
@@ -125,7 +131,7 @@ class MUNIT_Trainer(nn.Module):
         # Load semantic segmentation model if needed
         if "semantic_w" in hyperparameters.keys() and hyperparameters["semantic_w"] > 0:
             self.segmentation_model = load_segmentation_model(
-                hyperparameters["semantic_ckpt_path"]
+                hyperparameters["semantic_ckpt_path"], 19
             )
             self.segmentation_model.eval()
             for param in self.segmentation_model.parameters():
@@ -181,7 +187,27 @@ class MUNIT_Trainer(nn.Module):
             self.output_classifier_sr_a.apply(weights_init("gaussian"))
             self.output_scheduler_sr = get_scheduler(self.output_classif_opt_sr, hyperparameters)
 
+        if self.train_seg:
+            pretrained = load_segmentation_model(
+                hyperparameters["semantic_ckpt_path"], 19
+            )
+            last_layer = nn.Conv2d(512, 10, kernel_size=1)
+            model = torch.nn.Sequential(*list(pretrained.resnet34_8s.children())[7:-1], last_layer.cuda())
+            self.segmentation_head = model
+            
+            for param in self.segmentation_head.parameters():
+                param.requires_grad = True
+                
+            dann_params = list(self.segmentation_head.parameters())
+            self.segmentation_opt = torch.optim.Adam(
+                [p for p in dann_params if p.requires_grad],
+                lr=lr,
+                betas=(beta1, beta2),
+                weight_decay=hyperparameters["weight_decay"],
+            )
+            self.scheduler_seg = get_scheduler(self.segmentation_opt, hyperparameters)
 
+            
     def recon_criterion(self, input, target):
         """
         Compute pixelwise L1 loss between two images input and target
@@ -240,7 +266,7 @@ class MUNIT_Trainer(nn.Module):
         return x_ab, x_ba
 
     def gen_update(
-        self, x_a, x_b, hyperparameters ,mask_a=None, mask_b=None, comet_exp=None, synth=False, semantic_gt= None
+        self, x_a, x_b, hyperparameters ,mask_a=None, mask_b=None, comet_exp=None, synth=False, semantic_gt_a=None, semantic_gt_b=None
     ):
         """
         Update the generator parameters
@@ -296,6 +322,7 @@ class MUNIT_Trainer(nn.Module):
         elif self.gen_state == 1:
             # encode
             c_a, s_a_prime = self.gen.encode(x_a, 1)
+
             c_b, s_b_prime = self.gen.encode(x_b, 2)
             # decode (within domain)
             x_a_recon = self.gen.decode(c_a, s_a_prime, 1)
@@ -397,8 +424,8 @@ class MUNIT_Trainer(nn.Module):
 
         # semantic-segmentation loss
         self.loss_sem_seg = (
-            self.compute_semantic_seg_loss(x_a, x_ab, mask_a, semantic_gt)
-            + self.compute_semantic_seg_loss(x_b, x_ba, mask_b, semantic_gt)
+            self.compute_semantic_seg_loss(x_a, x_ab, mask_a, semantic_gt_a)
+            + self.compute_semantic_seg_loss(x_b, x_ba, mask_b, semantic_gt_b)
             if hyperparameters["semantic_w"] > 0
             else 0
         )
@@ -578,10 +605,10 @@ class MUNIT_Trainer(nn.Module):
         Returns:
             torch.float -- Cross entropy loss on the unmasked region
         """
+        new_class = 19
         # denorm
         img1_denorm = (img1 + 1) / 2.0
         img2_denorm = (img2 + 1) / 2.0
-
         # norm for semantic seg network
         input_transformed1 = seg_batch_transform(img1_denorm)
         input_transformed2 = seg_batch_transform(img2_denorm)
@@ -590,27 +617,36 @@ class MUNIT_Trainer(nn.Module):
         #target = (
         #   self.segmentation_model(input_transformed1).max(1)[1]
         #)
+        #Infer x_ab or x_ba 
         output = self.segmentation_model(input_transformed2)
-        
-        if ground_truth is not None:
-            output = ground_truth
-  
-        else:
-            target = (self.segmentation_model(input_transformed1).max(1)[1])
 
+        # If we have a ground truth (simulated data), merge classes to fit the ground truth of our simulated world (19 to 10)
+        if ground_truth is not None:
+            target = ground_truth.type(torch.long).cuda()
+            target = target.squeeze(1)
+            output = merge_classes(output).cuda()
+            new_class = 10 
+            
+        else:
+            #Else use the pretrained model 
+            target = (self.segmentation_model(input_transformed1).max(1)[1])
+            
+        
+        #If we don't want to compute the loss on the masked region 
         if not self.full_adaptation and mask is not None:
-            # Resize mask to the size of the image
+            # Resize mask to the size of the image    
             mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+            
             mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
             mask1_tensor = mask1_tensor.squeeze(1)
-            # we want the masked region to be labeled as unknown (19 is not an existing label)
-            target_with_mask = torch.mul(1 - mask1_tensor, target) + mask1_tensor * 19
 
+            # we want the masked region to be labeled as unknown (19 is not an existing label)
+            target_with_mask = torch.mul(1 - mask1_tensor, target) + mask1_tensor * new_class #CATEGORICAL TENSOR (B 20 H W) (TARGET)
 
             mask2 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
             mask_tensor = torch.tensor(mask2, dtype=torch.float).cuda()
             output_with_mask = torch.mul(1 - mask_tensor, output)
-
+            # 
             # cat the mask as to the logits (loss=0 over the masked region)
             output_with_mask_cat = torch.cat(
                (output_with_mask, mask_tensor),dim=1
@@ -648,7 +684,6 @@ class MUNIT_Trainer(nn.Module):
         if self.gen_state == 0:
             for i in range(x_a.size(0)):
                 c_a, s_a_fake = self.gen_a.encode(x_a[i].unsqueeze(0))
-                print(c_a.shape)
                 c_b, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
                 x_a_recon.append(self.gen_a.decode(c_a, s_a_fake))
                 x_b_recon.append(self.gen_b.decode(c_b, s_b_fake))
@@ -782,6 +817,164 @@ class MUNIT_Trainer(nn.Module):
             )
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
+        
+    def sample_syn(self, x_a, x_b):
+        """ 
+        Infer the model on a batch of image
+        
+        Arguments:
+            x_a {torch.Tensor} -- batch of image from domain A
+            x_b {[type]} -- batch of image from domain B
+        
+        Returns:
+            A list of torch images -- columnwise :x_a, autoencode(x_a), x_ab_1, x_ab_2
+            Or if self.semantic_w is true: x_a, autoencode(x_a), Semantic segmentation x_a, 
+            x_ab_1,semantic segmentation x_ab_1, x_ab_2
+        """
+        self.eval()
+        s_a1 = Variable(self.s_a)
+        s_b1 = Variable(self.s_b)
+        s_a2 = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
+        s_b2 = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
+        x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
+
+        if self.gen_state == 0:
+            for i in range(x_a.size(0)):
+                c_a, s_a_fake = self.gen_a.encode(x_a[i].unsqueeze(0))
+                c_b, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
+                x_a_recon.append(self.gen_a.decode(c_a, s_a_fake))
+                x_b_recon.append(self.gen_b.decode(c_b, s_b_fake))
+                if self.guided == 0:
+                    x_ba1.append(self.gen_a.decode(c_b, s_a1[i].unsqueeze(0)))
+                    x_ba2.append(self.gen_a.decode(c_b, s_a2[i].unsqueeze(0)))
+                    x_ab1.append(self.gen_b.decode(c_a, s_b1[i].unsqueeze(0)))
+                    x_ab2.append(self.gen_b.decode(c_a, s_b2[i].unsqueeze(0)))
+                elif self.guided == 1:
+                    x_ba1.append(
+                        self.gen_a.decode(c_b, s_a_fake)
+                    )  # s_a1[i].unsqueeze(0)))
+                    x_ba2.append(
+                        self.gen_a.decode(c_b, s_a_fake)
+                    )  # s_a2[i].unsqueeze(0)))
+                    x_ab1.append(
+                        self.gen_b.decode(c_a, s_b_fake)
+                    )  # s_b1[i].unsqueeze(0)))
+                    x_ab2.append(
+                        self.gen_b.decode(c_a, s_b_fake)
+                    )  # s_b2[i].unsqueeze(0)))
+                else:
+                    print("self.guided unknown value:", self.guided)
+
+        elif self.gen_state == 1:
+            for i in range(x_a.size(0)):
+                c_a, s_a_fake = self.gen.encode(x_a[i].unsqueeze(0), 1)
+                c_b, s_b_fake = self.gen.encode(x_b[i].unsqueeze(0), 2)
+                x_a_recon.append(self.gen.decode(c_a, s_a_fake, 1))
+                x_b_recon.append(self.gen.decode(c_b, s_b_fake, 2))
+                if self.guided == 0:
+                    x_ba1.append(self.gen.decode(c_b, s_a1[i].unsqueeze(0), 1))
+                    x_ba2.append(self.gen.decode(c_b, s_a2[i].unsqueeze(0), 1))
+                    x_ab1.append(self.gen.decode(c_a, s_b1[i].unsqueeze(0), 2))
+                    x_ab2.append(self.gen.decode(c_a, s_b2[i].unsqueeze(0), 2))
+                elif self.guided == 1:
+                    x_ba1.append(
+                        self.gen.decode(c_b, s_a_fake, 1)
+                    )  # s_a1[i].unsqueeze(0)))
+                    x_ba2.append(
+                        self.gen.decode(c_b, s_a_fake, 1)
+                    )  # s_a2[i].unsqueeze(0)))
+                    x_ab1.append(
+                        self.gen.decode(c_a, s_b_fake, 2)
+                    )  # s_b1[i].unsqueeze(0)))
+                    x_ab2.append(
+                        self.gen.decode(c_a, s_b_fake, 2)
+                    )  # s_b2[i].unsqueeze(0)))
+                else:
+                    print("self.guided unknown value:", self.guided)
+
+        else:
+            print("self.gen_state unknown value:", self.gen_state)
+
+        x_a_recon, x_b_recon = torch.cat(x_a_recon), torch.cat(x_b_recon)
+        x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
+        x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
+
+        if self.semantic_w:
+            rgb_a_list, rgb_b_list, rgb_ab_list, rgb_ba_list = [], [], [], []
+
+            for i in range(x_a.size(0)):
+
+                # Inference semantic segmentation on original images
+                im_a = (x_a[i].squeeze() + 1) / 2.0
+                im_b = (x_b[i].squeeze() + 1) / 2.0
+
+                input_transformed_a = seg_transform()(im_a).unsqueeze(0)
+                input_transformed_b = seg_transform()(im_b).unsqueeze(0)
+                output_a = (
+                    self.segmentation_model(input_transformed_a).squeeze().max(0)[1]
+                )
+                output_b = (
+                    self.segmentation_model(input_transformed_b).squeeze().max(0)[1]
+                )
+
+                rgb_a = decode_segmap(output_a.cpu().numpy())
+                rgb_b = decode_segmap(output_b.cpu().numpy())
+                rgb_a = Image.fromarray(rgb_a).resize((x_a.size(3), x_a.size(3)))
+                rgb_b = Image.fromarray(rgb_b).resize((x_a.size(3), x_a.size(3)))
+
+                rgb_a_list.append(transforms.ToTensor()(rgb_a).unsqueeze(0))
+                rgb_b_list.append(transforms.ToTensor()(rgb_b).unsqueeze(0))
+
+                # Inference semantic segmentation on fake images
+                image_ab = (x_ab1[i].squeeze() + 1) / 2.0
+                image_ba = (x_ba1[i].squeeze() + 1) / 2.0
+
+                input_transformed_ab = seg_transform()(image_ab).unsqueeze(0).to("cuda")
+                input_transformed_ba = seg_transform()(image_ba).unsqueeze(0).to("cuda")
+
+                output_ab = (
+                    self.segmentation_model(input_transformed_ab).squeeze().max(0)[1]
+                )
+                output_ba = (
+                    self.segmentation_model(input_transformed_ba).squeeze().max(0)[1]
+                )
+
+                rgb_ab = decode_segmap(output_ab.cpu().numpy())
+                rgb_ba = decode_segmap(output_ba.cpu().numpy())
+
+                rgb_ab = Image.fromarray(rgb_ab).resize((x_a.size(3), x_a.size(3)))
+                rgb_ba = Image.fromarray(rgb_ba).resize((x_a.size(3), x_a.size(3)))
+
+                rgb_ab_list.append(transforms.ToTensor()(rgb_ab).unsqueeze(0))
+                rgb_ba_list.append(transforms.ToTensor()(rgb_ba).unsqueeze(0))
+
+            rgb1_a, rgb1_b, rgb1_ab, rgb1_ba = (
+                torch.cat(rgb_a_list).cuda(),
+                torch.cat(rgb_b_list).cuda(),
+                torch.cat(rgb_ab_list).cuda(),
+                torch.cat(rgb_ba_list).cuda(),
+            )
+
+        self.train()
+        if self.semantic_w:
+            self.segmentation_model.eval()
+            return (
+                x_a,
+                x_a_recon,
+                rgb1_a,
+                x_ab1,
+                rgb1_ab,
+                x_ab2,
+                x_b,
+                x_b_recon,
+                rgb1_b,
+                x_ba1,
+                rgb1_ba,
+                x_ba2,
+            )
+        else:
+            return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
+
 
     def sample_fid(self, x_a, x_b):
         """ 
@@ -973,7 +1166,40 @@ class MUNIT_Trainer(nn.Module):
         if comet_exp is not None:
             comet_exp.log_metric("loss_output_classifier_sr", loss.cpu().detach(), step=step)
         
-    
+    def segmentation_head_update(self, x_a, x_b, target_a, target_b, lamb, comet_exp=None):
+        
+        self.segmentation_opt.zero_grad()
+        
+        if self.gen_state == 0:
+            # encode
+            c_a, _ = self.gen_a.encode(x_a)
+            c_b, _ = self.gen_b.encode(x_b)
+        elif self.gen_state == 1:
+            # encode
+            c_a, _ = self.gen.encode(x_a, 1)
+            c_b, _ = self.gen.encode(x_b, 2)
+        else:
+            print("self.gen_state unknown value:", self.gen_state)
+
+        output_a = self.segmentation_head(c_a)
+        output_b = self.segmentation_head(c_b)
+        output_a = nn.functional.interpolate(input=output_a, size=(self.newsize, self.newsize), mode="bilinear")
+        output_b = nn.functional.interpolate(input=output_b, size=(self.newsize, self.newsize), mode="bilinear")
+
+        loss1 = nn.CrossEntropyLoss()(
+               output_a, target_a.type(torch.long).squeeze(1).cuda()
+            )
+        loss2 = nn.CrossEntropyLoss()(
+               output_b, target_b.type(torch.long).squeeze(1).cuda()
+            )
+        loss = (loss1 + loss2) * lamb 
+        
+        loss.backward()
+        self.segmentation_opt.step()
+        
+        if comet_exp is not None:
+            comet_exp.log_metric("loss_semantic_head", loss.cpu().detach())
+        
     def update_learning_rate(self):
         """ 
         Update the learning rate

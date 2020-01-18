@@ -456,15 +456,17 @@ class MyDatasetSynthetic(Dataset):
     """
     Dataset class for synthetic paired images and masks
     """
-    def __init__(self, file_list_a,file_list_b, mask_list, new_size, height, width):
+    def __init__(self, file_list_a, file_list_b, mask_list, semantic_a_list, semantic_b_list, new_size, height, width):
         self.image_paths  = default_txt_reader(file_list_a)
         self.pair_paths   = default_txt_reader(file_list_b)
         self.target_paths = default_txt_reader(mask_list)
+        self.semantic_a   = default_txt_reader(semantic_a_list)
+        self.semantic_b   = default_txt_reader(semantic_b_list)
         self.new_size     = new_size
         self.height       = height
         self.width        = width
 
-    def transform(self, image_a, image_b, mask):
+    def transform(self, image_a, image_b, mask, semantic_a, semantic_b):
         """Apply transformations to image and corresponding mask.
         Transformations applied are:
             random horizontal flipping, resizing, random cropping and normalizing
@@ -481,6 +483,8 @@ class MyDatasetSynthetic(Dataset):
             image_a = image_a.transpose(Image.FLIP_LEFT_RIGHT)
             image_b = image_b.transpose(Image.FLIP_LEFT_RIGHT)
             mask    = mask.transpose(Image.FLIP_LEFT_RIGHT)
+            semantic_a = semantic_a.transpose(Image.FLIP_LEFT_RIGHT)
+            semantic_b = semantic_b.transpose(Image.FLIP_LEFT_RIGHT)
 
         # print('debugging mask transform 2 size',mask.size)
         # Resize
@@ -491,6 +495,9 @@ class MyDatasetSynthetic(Dataset):
 
         # Resize mask
         mask = mask.resize((image_b.width, image_b.height), Image.NEAREST)
+        semantic_a = semantic_a.resize((image_b.width, image_b.height), Image.NEAREST)
+        semantic_b = semantic_b.resize((image_b.width, image_b.height), Image.NEAREST)
+
 
         # print('debugging mask transform 3 size',mask.size)
         # Random crop
@@ -501,17 +508,28 @@ class MyDatasetSynthetic(Dataset):
         image_b = F.crop(image_b, i, j, h, w)
         
         mask = F.crop(mask, i, j, h, w)
+        semantic_a = F.crop(semantic_a, i, j, h, w)
+        semantic_b = F.crop(semantic_b, i, j, h, w)
+
 
         # print('debugging mask transform 4 size',mask.size)
         # Transform to tensor
         to_tensor = transforms.ToTensor()
         image_a = to_tensor(image_a)
         image_b = to_tensor(image_b)
+        semantic_a = to_tensor(semantic_a) * 255 #to_tensor clip to 0:1
+        semantic_b = to_tensor(semantic_b) * 255
+        semantic_a = mapping(semantic_a)
+        semantic_b = mapping(semantic_b)
+        
 
         if np.max(mask) == 1:
             mask = to_tensor(mask) * 255
+
         else:
             mask = to_tensor(mask)
+        mask[mask > 0.5] = 1 
+        mask[mask < 0.5] = 0
 
         # print('debugging mask transform 5 size',mask.size)
         # Normalize
@@ -519,8 +537,9 @@ class MyDatasetSynthetic(Dataset):
         
         image_a = normalizer(image_a)
         image_b = normalizer(image_b)
-        
-        return image_a, image_b, mask
+        #print(torch.unique(mask))
+        #print(torch.unique(semantic_a))
+        return image_a, image_b, mask, semantic_a, semantic_b
 
     def __getitem__(self, index):
         """Get transformed image and mask at index index in the dataset
@@ -533,9 +552,13 @@ class MyDatasetSynthetic(Dataset):
         """
         image_a    = Image.open(self.image_paths[index][0]).convert("RGB")
         image_b    = Image.open(self.pair_paths[index][0]).convert("RGB")
-        mask       = Image.open(self.target_paths[index][0])
-        x, y, z    = self.transform(image_a, image_b, mask)
-        return x, y, z
+        mask       = Image.open(self.target_paths[index][0]).convert("L")
+        semantic_a = Image.open(self.semantic_a[index][0]).convert('L')
+        semantic_b = Image.open(self.semantic_b[index][0]).convert('L')
+
+        #PALETIZED HERE
+        x, y, z, sa, sb    = self.transform(image_a, image_b, mask, semantic_a, semantic_b)
+        return x, y, z, sa, sb
 
     def __len__(self):
         """return dataset length
@@ -549,6 +572,8 @@ def get_synthetic_data_loader(
     file_list_a,
     file_list_b,
     mask_list,
+    sem_list_a,
+    sem_list_b,
     batch_size,
     train,
     new_size=256,
@@ -578,7 +603,7 @@ def get_synthetic_data_loader(
     Returns:
         loader -- data loader with transformed dataset
     """
-    dataset = MyDatasetSynthetic(file_list_a, file_list_b, mask_list, new_size, height, width)
+    dataset = MyDatasetSynthetic(file_list_a, file_list_b, mask_list, sem_list_a, sem_list_b, new_size, height, width)
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
@@ -915,7 +940,7 @@ class Resnet34_8s(nn.Module):
         return x
 
 
-def load_segmentation_model(ckpt_path):
+def load_segmentation_model(ckpt_path, classes):
     """load Resnet34 segmentation model with output stride 8 from checkpoint
     
     Arguments:
@@ -924,7 +949,7 @@ def load_segmentation_model(ckpt_path):
     Returns:
         model -- segmentation model
     """
-    model = Resnet34_8s(num_classes=19).to("cuda")
+    model = Resnet34_8s(num_classes=classes).to("cuda")
     model.load_state_dict(torch.load(ckpt_path))
     return model
 
@@ -1271,6 +1296,28 @@ class BasicBlock(nn.Module):
 
         return out
 
+def merge_classes(output):
+    merged = torch.zeros(output.shape[0], 10, output.shape[2], output.shape[2])
+    dic = { 9:[14,15,16], 8:[13,17,18], 7:[11,12], 6:[10], 5:[9], 4:[8], 3:[5,6,7], 2:[2,3,4], 1:[0,1], 0:[]}
+
+    for key in dic:
+        
+        d = dic[key]
+        merged[:, key] = output[:, d].sum(dim=1)
+        
+    return merged
+
+def mapping(im):
+    im[im==255] = 8
+    im[im==200] = 7
+    im[im==178] = 6
+    im[im==149] = 5
+    im[im==133] = 4
+    im[im==76] = 3
+    im[im==55] = 2
+    im[im==29] = 1
+    im[im==0] = 0
+    return im
 
 # Define the encoded
 class domainClassifier(nn.Module):
