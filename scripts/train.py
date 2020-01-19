@@ -4,7 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
 from comet_ml import Experiment
 
-comet_exp = Experiment()
+comet_exp = Experiment(api_key="sTvLX6NB0T9crYEs2sOM7ZJNj",workspace="adrienju",project_name="final_tests")
 
 from utils import (
     get_all_data_loaders,
