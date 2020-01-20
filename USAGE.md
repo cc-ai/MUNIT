@@ -31,7 +31,7 @@ First, download the [pretrained models](https://drive.google.com/open?id=1cSxke5
 
 Run the following command to translate a folder of non flooded image to it's flooded version:
 ``` 
-   python test.py --configs ../configs/config.yaml --checkpoint models/gen_00370000.pt --input ../input_folder/ --output_folder output_folder/ --style ../Style_Image/style_image.jpg
+   python test.py --config ../configs/config.yaml --checkpoint models/gen_00370000.pt --input ../input_folder/ --output_folder output_folder/ --style ../Style_Image/style_image.jpg
 ```
 
 It is possible to control the style of output using an example style_image. The results are stored in `outputs` folder.
