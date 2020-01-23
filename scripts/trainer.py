@@ -634,7 +634,8 @@ class MUNIT_Trainer(nn.Module):
         
         #If we don't want to compute the loss on the masked region 
         if not self.full_adaptation and mask is not None:
-            # Resize mask to the size of the image    
+            # Resize mask to the size of the image
+            # ADRIEN  DANGEROUS TO CHAAAANGE
             mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
             
             mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
