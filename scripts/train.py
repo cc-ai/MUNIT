@@ -4,7 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
 from comet_ml import Experiment
 
-comet_exp = Experiment(api_key="sTvLX6NB0T9crYEs2sOM7ZJNj",workspace="adrienju",project_name="final_tests")
+comet_exp = Experiment(workspace="adrienju",project_name="final_tests")
 
 from utils import (
     get_all_data_loaders,
@@ -48,7 +48,7 @@ opts = parser.parse_args()
 if comet_exp is not None:
     comet_exp.log_asset(file_data=opts.config, file_name="config.yaml")
     comet_exp.log_parameter("git_hash", opts.git_hash)
-    
+
 cudnn.benchmark = True
 # Load experiment setting
 config = get_config(opts.config)
@@ -108,7 +108,7 @@ synthetic_loader = get_synthetic_data_loader(
     num_workers=config["num_workers"],
     crop=True,
 )
-    
+
 if config["eval_fid"] > 0:
     fid_loader   = get_fid_data_loader(
         config["data_list_fid_a"],
@@ -119,7 +119,7 @@ if config["eval_fid"] > 0:
         num_workers=config["num_workers"]
     )
     get_inception_metrics = prepare_inception_metrics(inception_moment=config["inception_moment_path"],parallel=False)
-    
+
 train_display_images_a = torch.stack(
     [train_loader_a.dataset[i] for i in range(display_size)]
 ).cuda()
@@ -169,18 +169,18 @@ if config["semantic_w"] != 0:
                     trainer.domain_classifier_update(
                         images_a, images_b, config, comet_exp
                     )
-                #Domain classifier s,r update    
+                #Domain classifier s,r update
                 if trainer.use_classifier_sr and (iterations + 1) % config["adaptation"]["classif_frequency"] == 0:
                     print(iterations + 1)
                     trainer.domain_classifier_sr_update(
                         images_a, images_b, False, config["adaptation"]["dfeat_lambda"], iterations+1, comet_exp
-                    )    
+                    )
 
-                #Output domain classifier s,r update    
+                #Output domain classifier s,r update
                 if trainer.use_output_classifier_sr and (iterations + 1) % config["adaptation"]["output_classif_freq"] == 0:
                     trainer.output_domain_classifier_sr_update(
                         images_a, images_as, images_b, images_bs, config, iterations+1, comet_exp
-                    )        
+                    )
 
                 torch.cuda.synchronize()
 
@@ -194,18 +194,18 @@ if config["semantic_w"] != 0:
                         # Main training code
                         trainer.dis_update(images_as, images_bs, config, comet_exp)
                         #Same mask because we know the area where we want to flood
-                        if config["synthetic_seg_gt"] == 0:                            
+                        if config["synthetic_seg_gt"] == 0:
                             trainer.gen_update(
                                 images_as, images_bs, config, mask_s, mask_s, comet_exp, True, None, None
                             )
-                        else: 
+                        else:
                             trainer.gen_update(
                                 images_as, images_bs, config, mask_s, mask_s, comet_exp, True, sem_a, sem_b
                             )
                         if trainer.use_classifier_sr and (iterations + 1) % config["adaptation"]["classif_frequency"] == 0:
                             trainer.domain_classifier_sr_update(
                                 images_as, images_bs, True, config["adaptation"]["dfeat_lambda"], iterations+1, comet_exp
-                            ) 
+                            )
                     if trainer.train_seg:
                         trainer.segmentation_head_update(images_as, images_bs, sem_a, sem_b, config['adaptation']['sem_seg_lambda'], comet_exp)
 
@@ -256,15 +256,14 @@ if config["semantic_w"] != 0:
                     sys.exit("Finish training")
 
 
-                                           
-                                           
-                                           
-                                           
-                                           
-                                           
-                                           
-                                           
-                                           
-                                           
-                                           
-                                            
+
+
+
+
+
+
+
+
+
+
+
