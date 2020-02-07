@@ -14,4 +14,4 @@ src/yaml_generator.py
 *.zip
 *.pkl
 *.pyc
-.comet.config
+.comet.config # important to prevent committing and pushing api keys
