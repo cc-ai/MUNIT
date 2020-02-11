@@ -1297,14 +1297,17 @@ class BasicBlock(nn.Module):
         return out
 
 def merge_classes(output):
+
     merged = torch.zeros(output.shape[0], 10, output.shape[2], output.shape[2])
     dic = { 9:[14,15,16], 8:[13,17,18], 7:[11,12], 6:[10], 5:[9], 4:[8], 3:[5,6,7], 2:[2,3,4], 1:[0,1], 0:[]}
 
     for key in dic:
-        
         d = dic[key]
+        if len(d) == 0:
+            continue
+
         merged[:, key] = output[:, d].sum(dim=1)
-        
+
     return merged
 
 def mapping(im):
