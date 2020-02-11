@@ -3,14 +3,14 @@
 
 # logger options
 image_save_iter: 1000         # How often do you want to save output images during training
-image_display_iter: 500       # How often do you want to display output images during training
+image_display_iter: 100       # How often do you want to display output images during training
 display_size: 8               # How many images do you want to display each time
 snapshot_save_iter: 5000      # How often do you want to save trained models
 log_iter: 10                   # How often do you want to log the training stats
 
 # optimization options
 max_iter: 1000000             # maximum number of training iterations
-batch_size: 2               # batch size
+batch_size: 1               # batch size
 weight_decay: 0.0001          # weight decay
 beta1: 0.5                    # Adam parameter
 beta2: 0.999                  # Adam parameter
@@ -86,7 +86,7 @@ ratio_disc_gen: 1               # ratio training discriminator vs generator 5 me
 # data options
 input_dim_a: 3                              # number of image channels [1/3]
 input_dim_b: 3                              # number of image channels [1/3]
-num_workers: 4                              # number of data loading threads
+num_workers: 8                              # number of data loading threads
 new_size: 256                               # first resize the shortest image side to this size
 crop_image_height: 256                      # random crop image of this height
 crop_image_width: 256                       # random crop image of this width
@@ -101,11 +101,11 @@ data_folder_test_b: ./
 data_list_test_b: /network/tmp1/ccai/data/munit_dataset/testB.txt
 data_list_train_a_seg: /network/tmp1/ccai/data/munit_dataset/trainA_seg.txt
 data_list_train_b_seg: /network/tmp1/ccai/data/munit_dataset/trainB_seg.txt
-data_list_train_a_synth: /network/tmp1/ccai/data/Unity1000R/txt_files/normal.txt
-data_list_train_b_synth: /network/tmp1/ccai/data/Unity1000R/txt_files/flood.txt
-data_list_train_b_seg_synth: /network/tmp1/ccai/data/Unity1000R/txt_files/mask.txt #binary mask
-seg_list_a: /network/tmp1/ccai/data/Unity1000R/txt_files/seg.txt
-seg_list_b: /network/tmp1/ccai/data/Unity1000R/txt_files/seg_flood.txt
+data_list_train_a_synth: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/normal.txt
+data_list_train_b_synth: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/flood.txt
+data_list_train_b_seg_synth: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/mask.txt #binary mask
+seg_list_a: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/seg.txt
+seg_list_b: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/seg_flood.txt
 
 # list image for FID monitoring
 data_list_fid_a: /network/tmp1/ccai/data/munit_dataset/trainA_fid.txt
