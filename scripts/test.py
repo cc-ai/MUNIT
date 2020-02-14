@@ -76,11 +76,11 @@ trainer.eval()
 new_size = config["new_size"]
 
 # Define the list of non-flooded images
-list_non_flooded = glob.glob(opts.input+'*')
+list_non_flooded = glob.glob(opts.input + "*")
 
 # Assert there are some elements inside
-if len(list_non_flooded) ==0:
-    sys.exit('Image list is empty. Please ensure opts.input ends with a /')
+if len(list_non_flooded) == 0:
+    sys.exit("Image list is empty. Please ensure opts.input ends with a /")
 
 # Inference
 with torch.no_grad():
@@ -93,17 +93,17 @@ with torch.no_grad():
         ]
     )
     # Load and Transform the Style Image
-    style_image = (
-        Variable(transform(Image.open(opts.style).convert("RGB")).unsqueeze(0).cuda())
+    style_image = Variable(
+        transform(Image.open(opts.style).convert("RGB")).unsqueeze(0).cuda()
     )
     # Extract the style from the Style Image
     _, s_b = trainer.gen.encode(style_image, 2)
-    
+
     for j in tq.tqdm(range(len(list_non_flooded))):
-        
+
         # Define image path
         path_xa = list_non_flooded[j]
-        
+
         # Load and transform the non_flooded image
         x_a = Variable(
             transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
@@ -112,10 +112,10 @@ with torch.no_grad():
             inputs = (x_a + 1) / 2.0
             path = os.path.join(opts.output_folder, "input{:03d}.jpg".format(j))
             vutils.save_image(inputs.data, path, padding=0, normalize=True)
-            
+
         # Extract content and style
         c_a, _ = trainer.gen.encode(x_a, 1)
-        
+
         # Perform cross domain translation
         x_ab = trainer.gen.decode(c_a, s_b, 2)
 
@@ -125,5 +125,5 @@ with torch.no_grad():
         # Define output path
         path = os.path.join(opts.output_folder, "output{:03d}.jpg".format(j))
 
-        # Save image 
+        # Save image
         vutils.save_image(outputs.data, path, padding=0, normalize=True)

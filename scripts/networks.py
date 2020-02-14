@@ -81,11 +81,11 @@ class MsImageDis(nn.Module):
         outs0 = self.forward(input_fake)
         outs1 = self.forward(input_real)
         loss = 0
-        #print(len(outs0), len(outs1))
+        # print(len(outs0), len(outs1))
 
         for it, (out0, out1) in enumerate(zip(outs0, outs1)):
-        #    print(out0.shape)
-        #    print(out1.shape)
+            #    print(out0.shape)
+            #    print(out1.shape)
 
             if self.gan_type == "lsgan":
                 loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2)
@@ -113,18 +113,17 @@ class MsImageDis(nn.Module):
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
         return loss
-    
-    
+
     def calc_dis_loss_sr(self, input_sim, input_real):
         # calculate the loss to train D
         outs0 = self.forward(input_sim)
         outs1 = self.forward(input_real)
         loss = 0
-        #print(len(outs0), len(outs1))
+        # print(len(outs0), len(outs1))
 
         for it, (out0, out1) in enumerate(zip(outs0, outs1)):
-        #    print(out0.shape)
-        #    print(out1.shape)
+            #    print(out0.shape)
+            #    print(out1.shape)
 
             if self.gan_type == "lsgan":
                 loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2)
@@ -138,16 +137,16 @@ class MsImageDis(nn.Module):
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
         return loss
-    
+
     def calc_gen_loss_sr(self, input_fake):
         # calculate the loss to train D
         outs0 = self.forward(input_fake)
         loss = 0
-        #print(len(outs0), len(outs1))
+        # print(len(outs0), len(outs1))
 
         for it, (out0) in enumerate(outs0):
-        #    print(out0.shape)
-        #    print(out1.shape)
+            #    print(out0.shape)
+            #    print(out1.shape)
 
             if self.gan_type == "lsgan":
                 loss += torch.mean((out0 - 0.5) ** 2)
