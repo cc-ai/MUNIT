@@ -53,7 +53,7 @@ def get_all_data_loaders(conf):
 
     Returns:
         train_loader_a, train_loader_b, test_loader_a, test_loader_b
-         -- data loaders for test and train sets in worlds A and B 
+         -- data loaders for test and train sets in worlds A and B
     """
     batch_size = conf["batch_size"]
     num_workers = conf["num_workers"]
@@ -200,9 +200,9 @@ def get_data_loader_list(
      (horizontal flip, resizing, random crop, normalization are handled)
 
     Arguments:
-        root {str} -- path root 
+        root {str} -- path root
         file_list {str list} -- list of the file names
-        batch_size {int} -- 
+        batch_size {int} --
         train {bool} -- training mode
 
     Keyword Arguments:
@@ -269,7 +269,7 @@ class MyDataset(Dataset):
     """
     def __init__(self, file_list, mask_list, new_size, height, width):
         self.image_paths = default_txt_reader(file_list)
-        if mask_list is not None: 
+        if mask_list is not None:
             self.target_paths = default_txt_reader(mask_list)
             print("Segmentation mask will be used")
         else:
@@ -286,7 +286,7 @@ class MyDataset(Dataset):
         Arguments:
             image {Image} -- Image
             mask {Image} -- Mask
-        
+
         Returns:
             image, mask {Image, Image} -- transformed image and mask
         """
@@ -305,12 +305,12 @@ class MyDataset(Dataset):
             image, output_size=(self.height, self.width)
         )
         image = F.crop(image, i, j, h, w)
-        
+
         if type(mask) is not torch.Tensor:
             # Resize mask
             if flip == True:
                 mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
-                
+
             mask = mask.resize((image.width, image.height), Image.NEAREST)
 
             mask = F.crop(mask, i, j, h, w)
@@ -318,13 +318,13 @@ class MyDataset(Dataset):
                 mask = to_tensor(mask) * 255
             else:
                 mask = to_tensor(mask)
-            
+
             # print('debugging mask transform 4 size',mask.size)
-        
+
         # Transform to tensor
-        
+
         image = to_tensor(image)
-        
+
         # print('debugging mask transform 5 size',mask.size)
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
@@ -333,10 +333,10 @@ class MyDataset(Dataset):
 
     def __getitem__(self, index):
         """Get transformed image and mask at index index in the dataset
-        
+
         Arguments:
             index {int} -- index at which to get image, mask pair
-        
+
         Returns:
             image, mask pair
         """
@@ -346,12 +346,12 @@ class MyDataset(Dataset):
         else:
             mask = torch.tensor([])
         x, y = self.transform(image, mask)
-        
+
         return x,y
-    
+
     def __len__(self):
         """return dataset length
-        
+
         Returns:
             int -- dataset length
         """
@@ -374,21 +374,21 @@ class DatasetInferenceFID(Dataset):
         Arguments:
             image {Image} -- Image
             mask {Image} -- Mask
-        
+
         Returns:
             image, mask {Image, Image} -- transformed image and mask
         """
-        
+
         # Resize
         resize = transforms.Resize(size=self.new_size)
         image_a = resize(image_a)
         image_b = resize(image_b)
-        
+
         # Transform to tensor
         to_tensor = transforms.ToTensor()
         image_a = to_tensor(image_a)
         image_b = to_tensor(image_b)
-        
+
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         image_a = normalizer(image_a)
@@ -397,10 +397,10 @@ class DatasetInferenceFID(Dataset):
 
     def __getitem__(self, index):
         """Get transformed image and mask at index index in the dataset
-        
+
         Arguments:
             index {int} -- index at which to get image, mask pair
-        
+
         Returns:
             image, mask pair
         """
@@ -411,12 +411,12 @@ class DatasetInferenceFID(Dataset):
 
     def __len__(self):
         """return dataset length
-        
+
         Returns:
             int -- dataset length
         """
         return len(self.image_paths)
-    
+
 def get_fid_data_loader(
     file_list_a,
     file_list_b,
@@ -428,17 +428,17 @@ def get_fid_data_loader(
     """
     Masks and images lists-based data loader with transformations
     (horizontal flip, resizing, random crop, normalization are handled)
-    
+
     Arguments:
         file_list_a {str list} -- list of images filenames domain A
         file_list_b {str list} -- list of images filenames domain B
         batch_size {int} -- batch size
         train {bool} -- training
-    
+
     Keyword Arguments:
         new_size {int} -- parameter for resizing (default: {None})
         num_workers {int} -- number of workers (default: {4})
-        
+
     Returns:
         loader -- data loader with transformed dataset
     """
@@ -450,8 +450,8 @@ def get_fid_data_loader(
         drop_last=True,
         num_workers=num_workers,
     )
-    return loader    
-    
+    return loader
+
 class MyDatasetSynthetic(Dataset):
     """
     Dataset class for synthetic paired images and masks
@@ -474,7 +474,7 @@ class MyDatasetSynthetic(Dataset):
             image_a {Image} -- Image
             image_b {Image} -- Image
             mask {Image} -- Mask
-        
+
         Returns:
             image_a, image_b, mask {Image, Image, Image} -- transformed image_a, pair image_b and mask
         """
@@ -506,7 +506,7 @@ class MyDatasetSynthetic(Dataset):
         )
         image_a = F.crop(image_a, i, j, h, w)
         image_b = F.crop(image_b, i, j, h, w)
-        
+
         mask = F.crop(mask, i, j, h, w)
         semantic_a = F.crop(semantic_a, i, j, h, w)
         semantic_b = F.crop(semantic_b, i, j, h, w)
@@ -521,20 +521,20 @@ class MyDatasetSynthetic(Dataset):
         semantic_b = to_tensor(semantic_b) * 255
         semantic_a = mapping(semantic_a)
         semantic_b = mapping(semantic_b)
-        
+
 
         if np.max(mask) == 1:
             mask = to_tensor(mask) * 255
 
         else:
             mask = to_tensor(mask)
-        mask[mask > 0.5] = 1 
+        mask[mask > 0.5] = 1
         mask[mask < 0.5] = 0
 
         # print('debugging mask transform 5 size',mask.size)
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        
+
         image_a = normalizer(image_a)
         image_b = normalizer(image_b)
         #print(torch.unique(mask))
@@ -543,10 +543,10 @@ class MyDatasetSynthetic(Dataset):
 
     def __getitem__(self, index):
         """Get transformed image and mask at index index in the dataset
-        
+
         Arguments:
             index {int} -- index at which to get image, mask pair
-        
+
         Returns:
             image_a, image_b, mask pair
         """
@@ -562,12 +562,12 @@ class MyDatasetSynthetic(Dataset):
 
     def __len__(self):
         """return dataset length
-        
+
         Returns:
             int -- dataset length
         """
         return len(self.image_paths)
-    
+
 def get_synthetic_data_loader(
     file_list_a,
     file_list_b,
@@ -585,14 +585,14 @@ def get_synthetic_data_loader(
     """
     Masks and images lists-based data loader with transformations
     (horizontal flip, resizing, random crop, normalization are handled)
-    
+
     Arguments:
         file_list_a {str list} -- list of images filenames domain A
         file_list_b {str list} -- list of images filenames domain B
         mask_list {str list} -- list of masks filenames
         batch_size {int} -- batch size
         train {bool} -- training
-    
+
     Keyword Arguments:
         new_size {int} -- parameter for resizing (default: {None})
         height {int} -- dimension for random cropping (default: {256})
@@ -627,13 +627,13 @@ def get_data_loader_mask_and_im(
     """
     Masks and images lists-based data loader with transformations
     (horizontal flip, resizing, random crop, normalization are handled)
-    
+
     Arguments:
         file_list {str list} -- list of images filenames
         mask_list {str list} -- list of masks filenames
         batch_size {int} -- batch size
         train {bool} -- training
-    
+
     Keyword Arguments:
         new_size {int} -- parameter for resizing (default: {None})
         height {int} -- dimension for random cropping (default: {256})
@@ -672,7 +672,7 @@ def get_data_loader_folder(
     Arguments:
         input_folder {str} -- path to folder with input images
         batch_size {int} -- batch size
-        train {bool} -- training 
+        train {bool} -- training
 
     Keyword Arguments:
        new_size {int} -- parameter for resizing (default: {None})
@@ -720,10 +720,10 @@ def get_data_loader_folder(
 
 def get_config(config):
     """Parse config yaml file
-    
+
     Arguments:
         config {str} -- path to yaml config file
-    
+
     Returns:
         dict -- parsed yaml file
     """
@@ -762,12 +762,12 @@ def write_2images(
     ):
     """Write images from both worlds a and b of the cycle  A-B-A as jpg
     Arguments:
-        image_outputs {Tensor list} -- list of images, the first half being outputs in B, 
+        image_outputs {Tensor list} -- list of images, the first half being outputs in B,
                                         the second half being outputs in A
         display_image_num {int} -- number of images to be displayed
-        image_directory {str} -- 
+        image_directory {str} --
         postfix {str} -- postfix to filename
-    
+
     Keyword Arguments:
         comet_exp {Comet experience} --  (default: {None})
     """
@@ -789,10 +789,10 @@ def write_2images(
 
 def prepare_sub_folder(output_directory):
     """Create images and checkpoints subfolders in output directory
-    
+
     Arguments:
         output_directory {str} -- output directory
-    
+
     Returns:
         checkpoint_directory, image_directory-- checkpoints and images directories
     """
@@ -859,13 +859,13 @@ def get_slerp_interp(nb_latents, nb_interp, z_dim):
 # Get model list for resume
 def get_model_list(dirname, key):
     """get last model in dirname, whose name contain key
-    
+
     Arguments:
         dirname {str} -- directory name
         key {str} -- "key" in the model name
-    
+
     Returns:
-        last_model_name {str} -- last model name 
+        last_model_name {str} -- last model name
     """
     if os.path.exists(dirname) is False:
         return None
@@ -888,10 +888,10 @@ def load_vgg16(model_dir):
 
 def load_flood_classifier(ckpt_path):
     """ Load flood classifier based on a pretrained resnet18 network.
-    
+
     Arguments:
         ckpt_path {str} -- path to checkpoint
-    
+
     Returns:
         model -- flood classifier model
     """
@@ -942,10 +942,10 @@ class Resnet34_8s(nn.Module):
 
 def load_segmentation_model(ckpt_path, classes):
     """load Resnet34 segmentation model with output stride 8 from checkpoint
-    
+
     Arguments:
         ckpt_path {str} -- checkpoint path
-    
+
     Returns:
         model -- segmentation model
     """
@@ -958,7 +958,7 @@ def load_segmentation_model(ckpt_path, classes):
 def decode_segmap(image, nc=19):
     """Creates a label colormap used in CITYSCAPES segmentation benchmark.
     Arguments:
-        image {array} -- segmented image 
+        image {array} -- segmented image
         (array of image size containing classat each pixel)
     Returns:
         array of size 3*nc -- A colormap for visualizing segmentation results.
@@ -1000,13 +1000,13 @@ def decode_segmap(image, nc=19):
 
 def load_inception(model_path):
     """Load Inception model
-    
+
     Arguments:
         model_path {str} -- model path
-    
+
     Returns:
         model -- Inception model
-    """         
+    """
     state_dict = torch.load(model_path)
     model = inception_v3(pretrained=False, transform_input=True)
     model.aux_logits = False
@@ -1034,13 +1034,13 @@ def vgg_preprocess(batch):
 
 
 def get_scheduler(optimizer, hyperparameters, iterations=-1):
-    """Returns a learning rate scheduler such that the learning rate of each parameter group is set to the initial 
+    """Returns a learning rate scheduler such that the learning rate of each parameter group is set to the initial
     lr decayed by hyperparameter gamma every step_size epochs when a learning rate policy is specified in the hyperparameters.
     When iterations=-1, sets initial lr as lr.
     Arguments:
         optimizer {Optimizer} -- Wrapped optimizer
         hyperparameters {} -- Hyperparameters parsed from config yaml file
-    
+
     Keyword Arguments:
         iterations {int} -- index of the last epoch (default: {-1})
     """
@@ -1189,11 +1189,11 @@ def pytorch03_to_pytorch04(state_dict_base, trainer_name):
 # Domain adversarial loss (define a classifier on top of the feature extracted)
 def conv_block(in_channels, out_channels):
     """returns a block Convolution - batch normalization - ReLU - Pooling
-    
+
     Arguments:
         in_channels {int} -- Number of channels in the input image
         out_channels {int} -- Number of channels produced by the convolution
-    
+
     Returns:
         block -- Convolution - batch normalization - ReLU - Pooling
     """
@@ -1207,16 +1207,16 @@ def conv_block(in_channels, out_channels):
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding
-    
+
     Arguments:
         in_planes {int} -- Number of channels in the input image
         out_planes {int} -- Number of channels produced by the convolution
-    
+
     Keyword Arguments:
         stride {int or tuple, optional} -- Stride of the convolution. Default: 1 (default: {1})
         groups {int, optional} -- Number of blocked connections from input channels to output channels.tion] (default: {1})
         dilation {int or tuple, optional} -- Spacing between kernel elements (default: {1})
-    
+
     Returns:
         output layer of 3x3 convolution with padding
     """
@@ -1237,7 +1237,7 @@ def conv1x1(in_planes, out_planes, stride=1):
     Arguments:
         in_planes {int} -- Number of channels in the input image
         out_planes {int} -- Number of channels produced by the convolution
-    
+
     Keyword Arguments:
         stride {int or tuple, optional} -- Stride of the convolution. Default: 1 (default: {1})
     """
@@ -1346,3 +1346,46 @@ class domainClassifier(nn.Module):
         #logits = nn.functional.softmax(fc_output)
         #return logits
         return fc_output
+
+
+def flatten_opts(opts):
+    """Flattens a multi-level addict.Dict or native dictionnary into a single
+    level native dict with string keys representing the keys sequence to reach
+    a value in the original argument.
+
+    d = addict.Dict()
+    d.a.b.c = 2
+    d.a.b.d = 3
+    d.a.e = 4
+    d.f = 5
+    flatten_opts(d)
+    >>> {
+        "a.b.c": 2,
+        "a.b.d": 3,
+        "a.e": 4,
+        "f": 5,
+    }
+
+    Args:
+        opts (addict.Dict or dict): addict dictionnary to flatten
+
+    Returns:
+        dict: flattened dictionnary
+    """
+    values_list = []
+
+    def p(d, prefix="", vals=[]):
+        for k, v in d.items():
+            if isinstance(v, dict):
+                p(v, prefix + k + ".", vals)
+            elif isinstance(v, list):
+                if isinstance(v[0], dict):
+                    for i, m in enumerate(v):
+                        p(m, prefix + k + "." + str(i) + ".", vals)
+                else:
+                    vals.append((prefix + k, str(v)))
+            else:
+                vals.append((prefix + k, v))
+
+    p(opts, vals=values_list)
+    return dict(values_list)
