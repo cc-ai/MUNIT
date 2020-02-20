@@ -45,6 +45,7 @@ from resnet import resnet34
 
 # Worlds for the GAN will be called A and B
 
+
 def get_all_data_loaders(conf):
     """primary data loader interface (load trainA, testA, trainB, testB)
 
@@ -53,7 +54,7 @@ def get_all_data_loaders(conf):
 
     Returns:
         train_loader_a, train_loader_b, test_loader_a, test_loader_b
-         -- data loaders for test and train sets in worlds A and B 
+         -- data loaders for test and train sets in worlds A and B
     """
     batch_size = conf["batch_size"]
     num_workers = conf["num_workers"]
@@ -153,11 +154,13 @@ def get_all_data_loaders(conf):
         )
     return train_loader_a, train_loader_b, test_loader_a, test_loader_b
 
+
 def seg_batch_transform(img_batch):
     N = img_batch.shape[0]
     for i in range(N):
-        img_batch[i,:,:,:] = seg_transform()(img_batch[i,:,:,:])
-    return(img_batch)
+        img_batch[i, :, :, :] = seg_transform()(img_batch[i, :, :, :])
+    return img_batch
+
 
 def seg_transform():
     """
@@ -195,14 +198,14 @@ def get_data_loader_list(
     width=256,
     num_workers=4,
     crop=True,
-    ):
+):
     """ List-based data loader with transformations
      (horizontal flip, resizing, random crop, normalization are handled)
 
     Arguments:
-        root {str} -- path root 
+        root {str} -- path root
         file_list {str list} -- list of the file names
-        batch_size {int} -- 
+        batch_size {int} --
         train {bool} -- training mode
 
     Keyword Arguments:
@@ -220,19 +223,13 @@ def get_data_loader_list(
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ]
     transform_list = (
-        [transforms.RandomCrop((height, width))] + transform_list
-        if crop
-        else transform_list
+        [transforms.RandomCrop((height, width))] + transform_list if crop else transform_list
     )
     transform_list = (
-        [transforms.Resize(new_size)] + transform_list
-        if new_size is not None
-        else transform_list
+        [transforms.Resize(new_size)] + transform_list if new_size is not None else transform_list
     )
     transform_list = (
-        [transforms.RandomHorizontalFlip()] + transform_list
-        if train
-        else transform_list
+        [transforms.RandomHorizontalFlip()] + transform_list if train else transform_list
     )
     transform = transforms.Compose(transform_list)
     dataset = ImageFilelist(root, file_list, transform=transform)
@@ -258,7 +255,16 @@ def default_txt_reader(flist):
     print(flist)
     with open(flist, "r") as rf:
         for line in rf.readlines():
-            impath = line.strip().split()
+            impath = [line.strip()]
+
+            # if "Screenshot" in line:
+            #    print("**************")
+            #    print(impath)
+            # impath = line.strip().split()
+
+            # if "Screenshot" in line:
+            #    print(impath)
+            #    print("***************")
             imlist.append(impath)
     return imlist
 
@@ -267,9 +273,10 @@ class MyDataset(Dataset):
     """
     Dataset class for images and masks filenames inputs
     """
+
     def __init__(self, file_list, mask_list, new_size, height, width):
         self.image_paths = default_txt_reader(file_list)
-        if mask_list is not None: 
+        if mask_list is not None:
             self.target_paths = default_txt_reader(mask_list)
             print("Segmentation mask will be used")
         else:
@@ -286,7 +293,7 @@ class MyDataset(Dataset):
         Arguments:
             image {Image} -- Image
             mask {Image} -- Mask
-        
+
         Returns:
             image, mask {Image, Image} -- transformed image and mask
         """
@@ -301,16 +308,14 @@ class MyDataset(Dataset):
         image = resize(image)
         to_tensor = transforms.ToTensor()
         # Random crop
-        i, j, h, w = transforms.RandomCrop.get_params(
-            image, output_size=(self.height, self.width)
-        )
+        i, j, h, w = transforms.RandomCrop.get_params(image, output_size=(self.height, self.width))
         image = F.crop(image, i, j, h, w)
-        
+
         if type(mask) is not torch.Tensor:
             # Resize mask
             if flip == True:
                 mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
-                
+
             mask = mask.resize((image.width, image.height), Image.NEAREST)
 
             mask = F.crop(mask, i, j, h, w)
@@ -318,13 +323,13 @@ class MyDataset(Dataset):
                 mask = to_tensor(mask) * 255
             else:
                 mask = to_tensor(mask)
-            
+
             # print('debugging mask transform 4 size',mask.size)
-        
+
         # Transform to tensor
-        
+
         image = to_tensor(image)
-        
+
         # print('debugging mask transform 5 size',mask.size)
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
@@ -333,25 +338,39 @@ class MyDataset(Dataset):
 
     def __getitem__(self, index):
         """Get transformed image and mask at index index in the dataset
-        
+
         Arguments:
             index {int} -- index at which to get image, mask pair
-        
+
         Returns:
             image, mask pair
         """
+        # print("******************")
+        # print("BROH START")
+        # print("image path: ", self.image_paths[index][0])
         image = Image.open(self.image_paths[index][0]).convert("RGB")
+        # print("image: ", image)
+
         if self.target_paths is not None:
+            # print("mask path: ", self.target_paths[index][0])
             mask = Image.open(self.target_paths[index][0])
+
         else:
             mask = torch.tensor([])
+            # print("MASK PATH DOES NOT EXIST")
+        # print("mask: ", mask)
         x, y = self.transform(image, mask)
-        
-        return x,y
-    
+        y = y[0].unsqueeze(0)
+        # print("mask shape: ", y.shape)
+        # print("mask: ", y)
+
+        # print("BROH END")
+        # print("******************")
+        return x, y
+
     def __len__(self):
         """return dataset length
-        
+
         Returns:
             int -- dataset length
         """
@@ -362,6 +381,7 @@ class DatasetInferenceFID(Dataset):
     """
     Dataset class for images and masks filenames inputs
     """
+
     def __init__(self, file_list_a, file_list_b, new_size):
         self.image_paths = default_txt_reader(file_list_a)
         self.target_paths = default_txt_reader(file_list_b)
@@ -374,21 +394,21 @@ class DatasetInferenceFID(Dataset):
         Arguments:
             image {Image} -- Image
             mask {Image} -- Mask
-        
+
         Returns:
             image, mask {Image, Image} -- transformed image and mask
         """
-        
+
         # Resize
         resize = transforms.Resize(size=self.new_size)
         image_a = resize(image_a)
         image_b = resize(image_b)
-        
+
         # Transform to tensor
         to_tensor = transforms.ToTensor()
         image_a = to_tensor(image_a)
         image_b = to_tensor(image_b)
-        
+
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         image_a = normalizer(image_a)
@@ -397,10 +417,10 @@ class DatasetInferenceFID(Dataset):
 
     def __getitem__(self, index):
         """Get transformed image and mask at index index in the dataset
-        
+
         Arguments:
             index {int} -- index at which to get image, mask pair
-        
+
         Returns:
             image, mask pair
         """
@@ -411,34 +431,28 @@ class DatasetInferenceFID(Dataset):
 
     def __len__(self):
         """return dataset length
-        
+
         Returns:
             int -- dataset length
         """
         return len(self.image_paths)
-    
-def get_fid_data_loader(
-    file_list_a,
-    file_list_b,
-    batch_size,
-    train,
-    new_size=256,
-    num_workers=4,
-    ):
+
+
+def get_fid_data_loader(file_list_a, file_list_b, batch_size, train, new_size=256, num_workers=4):
     """
     Masks and images lists-based data loader with transformations
     (horizontal flip, resizing, random crop, normalization are handled)
-    
+
     Arguments:
         file_list_a {str list} -- list of images filenames domain A
         file_list_b {str list} -- list of images filenames domain B
         batch_size {int} -- batch size
         train {bool} -- training
-    
+
     Keyword Arguments:
         new_size {int} -- parameter for resizing (default: {None})
         num_workers {int} -- number of workers (default: {4})
-        
+
     Returns:
         loader -- data loader with transformed dataset
     """
@@ -450,21 +464,33 @@ def get_fid_data_loader(
         drop_last=True,
         num_workers=num_workers,
     )
-    return loader    
-    
+    return loader
+
+
 class MyDatasetSynthetic(Dataset):
     """
     Dataset class for synthetic paired images and masks
     """
-    def __init__(self, file_list_a, file_list_b, mask_list, semantic_a_list, semantic_b_list, new_size, height, width):
-        self.image_paths  = default_txt_reader(file_list_a)
-        self.pair_paths   = default_txt_reader(file_list_b)
+
+    def __init__(
+        self,
+        file_list_a,
+        file_list_b,
+        mask_list,
+        semantic_a_list,
+        semantic_b_list,
+        new_size,
+        height,
+        width,
+    ):
+        self.image_paths = default_txt_reader(file_list_a)
+        self.pair_paths = default_txt_reader(file_list_b)
         self.target_paths = default_txt_reader(mask_list)
-        self.semantic_a   = default_txt_reader(semantic_a_list)
-        self.semantic_b   = default_txt_reader(semantic_b_list)
-        self.new_size     = new_size
-        self.height       = height
-        self.width        = width
+        self.semantic_a = default_txt_reader(semantic_a_list)
+        self.semantic_b = default_txt_reader(semantic_b_list)
+        self.new_size = new_size
+        self.height = height
+        self.width = width
 
     def transform(self, image_a, image_b, mask, semantic_a, semantic_b):
         """Apply transformations to image and corresponding mask.
@@ -474,7 +500,7 @@ class MyDatasetSynthetic(Dataset):
             image_a {Image} -- Image
             image_b {Image} -- Image
             mask {Image} -- Mask
-        
+
         Returns:
             image_a, image_b, mask {Image, Image, Image} -- transformed image_a, pair image_b and mask
         """
@@ -482,7 +508,7 @@ class MyDatasetSynthetic(Dataset):
         if torch.rand(1) > 0.5:
             image_a = image_a.transpose(Image.FLIP_LEFT_RIGHT)
             image_b = image_b.transpose(Image.FLIP_LEFT_RIGHT)
-            mask    = mask.transpose(Image.FLIP_LEFT_RIGHT)
+            mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
             semantic_a = semantic_a.transpose(Image.FLIP_LEFT_RIGHT)
             semantic_b = semantic_b.transpose(Image.FLIP_LEFT_RIGHT)
 
@@ -498,7 +524,6 @@ class MyDatasetSynthetic(Dataset):
         semantic_a = semantic_a.resize((image_b.width, image_b.height), Image.NEAREST)
         semantic_b = semantic_b.resize((image_b.width, image_b.height), Image.NEAREST)
 
-
         # print('debugging mask transform 3 size',mask.size)
         # Random crop
         i, j, h, w = transforms.RandomCrop.get_params(
@@ -506,68 +531,67 @@ class MyDatasetSynthetic(Dataset):
         )
         image_a = F.crop(image_a, i, j, h, w)
         image_b = F.crop(image_b, i, j, h, w)
-        
+
         mask = F.crop(mask, i, j, h, w)
         semantic_a = F.crop(semantic_a, i, j, h, w)
         semantic_b = F.crop(semantic_b, i, j, h, w)
-
 
         # print('debugging mask transform 4 size',mask.size)
         # Transform to tensor
         to_tensor = transforms.ToTensor()
         image_a = to_tensor(image_a)
         image_b = to_tensor(image_b)
-        semantic_a = to_tensor(semantic_a) * 255 #to_tensor clip to 0:1
+        semantic_a = to_tensor(semantic_a) * 255  # to_tensor clip to 0:1
         semantic_b = to_tensor(semantic_b) * 255
         semantic_a = mapping(semantic_a)
         semantic_b = mapping(semantic_b)
-        
 
         if np.max(mask) == 1:
             mask = to_tensor(mask) * 255
 
         else:
             mask = to_tensor(mask)
-        mask[mask > 0.5] = 1 
+        mask[mask > 0.5] = 1
         mask[mask < 0.5] = 0
 
         # print('debugging mask transform 5 size',mask.size)
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        
+
         image_a = normalizer(image_a)
         image_b = normalizer(image_b)
-        #print(torch.unique(mask))
-        #print(torch.unique(semantic_a))
+        # print(torch.unique(mask))
+        # print(torch.unique(semantic_a))
         return image_a, image_b, mask, semantic_a, semantic_b
 
     def __getitem__(self, index):
         """Get transformed image and mask at index index in the dataset
-        
+
         Arguments:
             index {int} -- index at which to get image, mask pair
-        
+
         Returns:
             image_a, image_b, mask pair
         """
-        image_a    = Image.open(self.image_paths[index][0]).convert("RGB")
-        image_b    = Image.open(self.pair_paths[index][0]).convert("RGB")
-        mask       = Image.open(self.target_paths[index][0]).convert("L")
-        semantic_a = Image.open(self.semantic_a[index][0]).convert('L')
-        semantic_b = Image.open(self.semantic_b[index][0]).convert('L')
+        image_a = Image.open(self.image_paths[index][0]).convert("RGB")
+        image_b = Image.open(self.pair_paths[index][0]).convert("RGB")
+        mask = Image.open(self.target_paths[index][0]).convert("L")
+        semantic_a = Image.open(self.semantic_a[index][0]).convert("L")
+        semantic_b = Image.open(self.semantic_b[index][0]).convert("L")
 
-        #PALETIZED HERE
-        x, y, z, sa, sb    = self.transform(image_a, image_b, mask, semantic_a, semantic_b)
+        # PALETIZED HERE
+        x, y, z, sa, sb = self.transform(image_a, image_b, mask, semantic_a, semantic_b)
         return x, y, z, sa, sb
 
     def __len__(self):
         """return dataset length
-        
+
         Returns:
             int -- dataset length
         """
         return len(self.image_paths)
-    
+
+
 def get_synthetic_data_loader(
     file_list_a,
     file_list_b,
@@ -581,18 +605,18 @@ def get_synthetic_data_loader(
     width=256,
     num_workers=4,
     crop=True,
-    ):
+):
     """
     Masks and images lists-based data loader with transformations
     (horizontal flip, resizing, random crop, normalization are handled)
-    
+
     Arguments:
         file_list_a {str list} -- list of images filenames domain A
         file_list_b {str list} -- list of images filenames domain B
         mask_list {str list} -- list of masks filenames
         batch_size {int} -- batch size
         train {bool} -- training
-    
+
     Keyword Arguments:
         new_size {int} -- parameter for resizing (default: {None})
         height {int} -- dimension for random cropping (default: {256})
@@ -603,7 +627,9 @@ def get_synthetic_data_loader(
     Returns:
         loader -- data loader with transformed dataset
     """
-    dataset = MyDatasetSynthetic(file_list_a, file_list_b, mask_list, sem_list_a, sem_list_b, new_size, height, width)
+    dataset = MyDatasetSynthetic(
+        file_list_a, file_list_b, mask_list, sem_list_a, sem_list_b, new_size, height, width,
+    )
     loader = DataLoader(
         dataset=dataset,
         batch_size=batch_size,
@@ -612,6 +638,7 @@ def get_synthetic_data_loader(
         num_workers=num_workers,
     )
     return loader
+
 
 def get_data_loader_mask_and_im(
     file_list,
@@ -623,17 +650,17 @@ def get_data_loader_mask_and_im(
     width=256,
     num_workers=4,
     crop=True,
-    ):
+):
     """
     Masks and images lists-based data loader with transformations
     (horizontal flip, resizing, random crop, normalization are handled)
-    
+
     Arguments:
         file_list {str list} -- list of images filenames
         mask_list {str list} -- list of masks filenames
         batch_size {int} -- batch size
         train {bool} -- training
-    
+
     Keyword Arguments:
         new_size {int} -- parameter for resizing (default: {None})
         height {int} -- dimension for random cropping (default: {256})
@@ -656,15 +683,8 @@ def get_data_loader_mask_and_im(
 
 
 def get_data_loader_folder(
-    input_folder,
-    batch_size,
-    train,
-    new_size=None,
-    height=256,
-    width=256,
-    num_workers=4,
-    crop=True,
-    ):
+    input_folder, batch_size, train, new_size=None, height=256, width=256, num_workers=4, crop=True,
+):
     """
     Folder-based data loader with transformations
      (horizontal flip, resizing, random crop, normalization are handled)
@@ -672,7 +692,7 @@ def get_data_loader_folder(
     Arguments:
         input_folder {str} -- path to folder with input images
         batch_size {int} -- batch size
-        train {bool} -- training 
+        train {bool} -- training
 
     Keyword Arguments:
        new_size {int} -- parameter for resizing (default: {None})
@@ -692,19 +712,13 @@ def get_data_loader_folder(
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
     ]
     transform_list = (
-        [transforms.RandomCrop((height, width))] + transform_list
-        if crop
-        else transform_list
+        [transforms.RandomCrop((height, width))] + transform_list if crop else transform_list
     )
     transform_list = (
-        [transforms.Resize(new_size)] + transform_list
-        if new_size is not None
-        else transform_list
+        [transforms.Resize(new_size)] + transform_list if new_size is not None else transform_list
     )
     transform_list = (
-        [transforms.RandomHorizontalFlip()] + transform_list
-        if train
-        else transform_list
+        [transforms.RandomHorizontalFlip()] + transform_list if train else transform_list
     )
     transform = transforms.Compose(transform_list)
     dataset = ImageFolder(input_folder, transform=transform)
@@ -720,10 +734,10 @@ def get_data_loader_folder(
 
 def get_config(config):
     """Parse config yaml file
-    
+
     Arguments:
         config {str} -- path to yaml config file
-    
+
     Returns:
         dict -- parsed yaml file
     """
@@ -748,26 +762,22 @@ def __write_images(image_outputs, display_image_num, file_name):
     image_outputs = [
         images.expand(-1, 3, -1, -1) for images in image_outputs
     ]  # expand gray-scale images to 3 channels
-    image_tensor = torch.cat(
-        [images[:display_image_num] for images in image_outputs], 0
-    )
+    image_tensor = torch.cat([images[:display_image_num] for images in image_outputs], 0)
     image_grid = vutils.make_grid(
         image_tensor.data, nrow=display_image_num, padding=0, normalize=True
     )
     vutils.save_image(image_grid, file_name, nrow=1)
 
 
-def write_2images(
-    image_outputs, display_image_num, image_directory, postfix, comet_exp=None
-    ):
+def write_2images(image_outputs, display_image_num, image_directory, postfix, comet_exp=None):
     """Write images from both worlds a and b of the cycle  A-B-A as jpg
     Arguments:
-        image_outputs {Tensor list} -- list of images, the first half being outputs in B, 
+        image_outputs {Tensor list} -- list of images, the first half being outputs in B,
                                         the second half being outputs in A
         display_image_num {int} -- number of images to be displayed
-        image_directory {str} -- 
+        image_directory {str} --
         postfix {str} -- postfix to filename
-    
+
     Keyword Arguments:
         comet_exp {Comet experience} --  (default: {None})
     """
@@ -789,10 +799,10 @@ def write_2images(
 
 def prepare_sub_folder(output_directory):
     """Create images and checkpoints subfolders in output directory
-    
+
     Arguments:
         output_directory {str} -- output directory
-    
+
     Returns:
         checkpoint_directory, image_directory-- checkpoints and images directories
     """
@@ -848,9 +858,7 @@ def get_slerp_interp(nb_latents, nb_interp, z_dim):
         low = np.random.randn(z_dim)
         high = np.random.randn(z_dim)  # low + np.random.randn(512) * 0.7
         interp_vals = np.linspace(0, 1, num=nb_interp)
-        latent_interp = np.array(
-            [slerp(v, low, high) for v in interp_vals], dtype=np.float32
-        )
+        latent_interp = np.array([slerp(v, low, high) for v in interp_vals], dtype=np.float32)
         latent_interps = np.vstack((latent_interps, latent_interp))
 
     return latent_interps[:, :, np.newaxis, np.newaxis]
@@ -859,13 +867,13 @@ def get_slerp_interp(nb_latents, nb_interp, z_dim):
 # Get model list for resume
 def get_model_list(dirname, key):
     """get last model in dirname, whose name contain key
-    
+
     Arguments:
         dirname {str} -- directory name
         key {str} -- "key" in the model name
-    
+
     Returns:
-        last_model_name {str} -- last model name 
+        last_model_name {str} -- last model name
     """
     if os.path.exists(dirname) is False:
         return None
@@ -886,12 +894,13 @@ def load_vgg16(model_dir):
         "This function relies on torch.utils.serialization.load_lua which is deprecated"
     )
 
+
 def load_flood_classifier(ckpt_path):
     """ Load flood classifier based on a pretrained resnet18 network.
-    
+
     Arguments:
         ckpt_path {str} -- path to checkpoint
-    
+
     Returns:
         model -- flood classifier model
     """
@@ -909,10 +918,7 @@ class Resnet34_8s(nn.Module):
         # Load the pretrained weights, remove avg pool
         # layer and get the output stride of 8
         resnet34_8s = resnet34(
-            fully_conv=True,
-            pretrained=True,
-            output_stride=8,
-            remove_avg_pool_layer=True,
+            fully_conv=True, pretrained=True, output_stride=8, remove_avg_pool_layer=True,
         )
 
         # Randomly initialize the 1x1 Conv scoring layer
@@ -934,18 +940,18 @@ class Resnet34_8s(nn.Module):
 
         x = self.resnet34_8s(x)
 
-        #x = nn.functional.upsample_bilinear(input=x, size=input_spatial_dim) 0.3
-        x = nn.functional.interpolate(input=x,size=input_spatial_dim, mode="bilinear")
+        # x = nn.functional.upsample_bilinear(input=x, size=input_spatial_dim) 0.3
+        x = nn.functional.interpolate(input=x, size=input_spatial_dim, mode="bilinear")
 
         return x
 
 
 def load_segmentation_model(ckpt_path, classes):
     """load Resnet34 segmentation model with output stride 8 from checkpoint
-    
+
     Arguments:
         ckpt_path {str} -- checkpoint path
-    
+
     Returns:
         model -- segmentation model
     """
@@ -958,7 +964,7 @@ def load_segmentation_model(ckpt_path, classes):
 def decode_segmap(image, nc=19):
     """Creates a label colormap used in CITYSCAPES segmentation benchmark.
     Arguments:
-        image {array} -- segmented image 
+        image {array} -- segmented image
         (array of image size containing classat each pixel)
     Returns:
         array of size 3*nc -- A colormap for visualizing segmentation results.
@@ -1000,13 +1006,13 @@ def decode_segmap(image, nc=19):
 
 def load_inception(model_path):
     """Load Inception model
-    
+
     Arguments:
         model_path {str} -- model path
-    
+
     Returns:
         model -- Inception model
-    """         
+    """
     state_dict = torch.load(model_path)
     model = inception_v3(pretrained=False, transform_input=True)
     model.aux_logits = False
@@ -1034,13 +1040,13 @@ def vgg_preprocess(batch):
 
 
 def get_scheduler(optimizer, hyperparameters, iterations=-1):
-    """Returns a learning rate scheduler such that the learning rate of each parameter group is set to the initial 
+    """Returns a learning rate scheduler such that the learning rate of each parameter group is set to the initial
     lr decayed by hyperparameter gamma every step_size epochs when a learning rate policy is specified in the hyperparameters.
     When iterations=-1, sets initial lr as lr.
     Arguments:
         optimizer {Optimizer} -- Wrapped optimizer
         hyperparameters {} -- Hyperparameters parsed from config yaml file
-    
+
     Keyword Arguments:
         iterations {int} -- index of the last epoch (default: {-1})
     """
@@ -1063,9 +1069,7 @@ def get_scheduler(optimizer, hyperparameters, iterations=-1):
 def weights_init(init_type="gaussian"):
     def init_fun(m):
         classname = m.__class__.__name__
-        if (classname.find("Conv") == 0 or classname.find("Linear") == 0) and hasattr(
-            m, "weight"
-        ):
+        if (classname.find("Conv") == 0 or classname.find("Linear") == 0) and hasattr(m, "weight"):
             # print m.__class__.__name__
             if init_type == "gaussian":
                 init.normal_(m.weight.data, 0.0, 0.02)
@@ -1189,11 +1193,11 @@ def pytorch03_to_pytorch04(state_dict_base, trainer_name):
 # Domain adversarial loss (define a classifier on top of the feature extracted)
 def conv_block(in_channels, out_channels):
     """returns a block Convolution - batch normalization - ReLU - Pooling
-    
+
     Arguments:
         in_channels {int} -- Number of channels in the input image
         out_channels {int} -- Number of channels produced by the convolution
-    
+
     Returns:
         block -- Convolution - batch normalization - ReLU - Pooling
     """
@@ -1207,16 +1211,16 @@ def conv_block(in_channels, out_channels):
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding
-    
+
     Arguments:
         in_planes {int} -- Number of channels in the input image
         out_planes {int} -- Number of channels produced by the convolution
-    
+
     Keyword Arguments:
         stride {int or tuple, optional} -- Stride of the convolution. Default: 1 (default: {1})
         groups {int, optional} -- Number of blocked connections from input channels to output channels.tion] (default: {1})
         dilation {int or tuple, optional} -- Spacing between kernel elements (default: {1})
-    
+
     Returns:
         output layer of 3x3 convolution with padding
     """
@@ -1237,7 +1241,7 @@ def conv1x1(in_planes, out_planes, stride=1):
     Arguments:
         in_planes {int} -- Number of channels in the input image
         out_planes {int} -- Number of channels produced by the convolution
-    
+
     Keyword Arguments:
         stride {int or tuple, optional} -- Stride of the convolution. Default: 1 (default: {1})
     """
@@ -1274,9 +1278,7 @@ class BasicBlock(nn.Module):
         self.stride = stride
         self.downsample = downsample
         if stride != 1 or inplanes != planes:
-            self.downsample = nn.Sequential(
-                conv1x1(inplanes, planes, stride), norm_layer(planes)
-            )
+            self.downsample = nn.Sequential(conv1x1(inplanes, planes, stride), norm_layer(planes))
 
     def forward(self, x):
         identity = x
@@ -1296,10 +1298,22 @@ class BasicBlock(nn.Module):
 
         return out
 
+
 def merge_classes(output):
 
     merged = torch.zeros(output.shape[0], 10, output.shape[2], output.shape[2])
-    dic = { 9:[14,15,16], 8:[13,17,18], 7:[11,12], 6:[10], 5:[9], 4:[8], 3:[5,6,7], 2:[2,3,4], 1:[0,1], 0:[]}
+    dic = {
+        9: [14, 15, 16],
+        8: [13, 17, 18],
+        7: [11, 12],
+        6: [10],
+        5: [9],
+        4: [8],
+        3: [5, 6, 7],
+        2: [2, 3, 4],
+        1: [0, 1],
+        0: [],
+    }
 
     for key in dic:
         d = dic[key]
@@ -1310,17 +1324,19 @@ def merge_classes(output):
 
     return merged
 
+
 def mapping(im):
-    im[im==255] = 8
-    im[im==200] = 7
-    im[im==178] = 6
-    im[im==149] = 5
-    im[im==133] = 4
-    im[im==76] = 3
-    im[im==55] = 2
-    im[im==29] = 1
-    im[im==0] = 0
+    im[im == 255] = 8
+    im[im == 200] = 7
+    im[im == 178] = 6
+    im[im == 149] = 5
+    im[im == 133] = 4
+    im[im == 76] = 3
+    im[im == 55] = 2
+    im[im == 29] = 1
+    im[im == 0] = 0
     return im
+
 
 # Define the encoded
 class domainClassifier(nn.Module):
@@ -1342,7 +1358,50 @@ class domainClassifier(nn.Module):
         res_block2 = self.BasicBlock2(max_pooled2)
         avg_pool = self.avg_pool(res_block2)
         fc_output = self.fc(avg_pool.squeeze())
-        #print(fc_output.shape)
-        #logits = nn.functional.softmax(fc_output)
-        #return logits
+        # print(fc_output.shape)
+        # logits = nn.functional.softmax(fc_output)
+        # return logits
         return fc_output
+
+
+def flatten_opts(opts):
+    """Flattens a multi-level addict.Dict or native dictionnary into a single
+    level native dict with string keys representing the keys sequence to reach
+    a value in the original argument.
+
+    d = addict.Dict()
+    d.a.b.c = 2
+    d.a.b.d = 3
+    d.a.e = 4
+    d.f = 5
+    flatten_opts(d)
+    >>> {
+        "a.b.c": 2,
+        "a.b.d": 3,
+        "a.e": 4,
+        "f": 5,
+    }
+
+    Args:
+        opts (addict.Dict or dict): addict dictionnary to flatten
+
+    Returns:
+        dict: flattened dictionnary
+    """
+    values_list = []
+
+    def p(d, prefix="", vals=[]):
+        for k, v in d.items():
+            if isinstance(v, dict):
+                p(v, prefix + k + ".", vals)
+            elif isinstance(v, list):
+                if isinstance(v[0], dict):
+                    for i, m in enumerate(v):
+                        p(m, prefix + k + "." + str(i) + ".", vals)
+                else:
+                    vals.append((prefix + k, str(v)))
+            else:
+                vals.append((prefix + k, v))
+
+    p(opts, vals=values_list)
+    return dict(values_list)
