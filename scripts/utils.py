@@ -324,7 +324,11 @@ class MyDataset(Dataset):
             else:
                 mask = to_tensor(mask)
 
-            # print('debugging mask transform 4 size',mask.size)
+
+        #Make mask binary
+        mask_thresh = (torch.max(mask) - torch.min(mask)) /2.0
+        mask = (mask > mask_thresh).float()
+
 
         # Transform to tensor
 
@@ -345,27 +349,17 @@ class MyDataset(Dataset):
         Returns:
             image, mask pair
         """
-        # print("******************")
-        # print("BROH START")
-        # print("image path: ", self.image_paths[index][0])
+
         image = Image.open(self.image_paths[index][0]).convert("RGB")
-        # print("image: ", image)
 
         if self.target_paths is not None:
-            # print("mask path: ", self.target_paths[index][0])
             mask = Image.open(self.target_paths[index][0])
 
         else:
             mask = torch.tensor([])
-            # print("MASK PATH DOES NOT EXIST")
-        # print("mask: ", mask)
+
         x, y = self.transform(image, mask)
         y = y[0].unsqueeze(0)
-        # print("mask shape: ", y.shape)
-        # print("mask: ", y)
-
-        # print("BROH END")
-        # print("******************")
         return x, y
 
     def __len__(self):
