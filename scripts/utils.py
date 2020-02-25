@@ -297,14 +297,16 @@ class MyDataset(Dataset):
         Returns:
             image, mask {Image, Image} -- transformed image and mask
         """
+
         flip = False
         # Random horizontal flipping
         if torch.rand(1) > 0.5:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
             flip = True
+
         # print('debugging mask transform 2 size',mask.size)
         # Resize
-        resize = transforms.Resize(size=self.new_size)
+        resize = transforms.Resize(size=(self.new_size, self.new_size))
         image = resize(image)
         to_tensor = transforms.ToTensor()
         # Random crop
@@ -324,11 +326,9 @@ class MyDataset(Dataset):
             else:
                 mask = to_tensor(mask)
 
-
-        #Make mask binary
-        mask_thresh = (torch.max(mask) - torch.min(mask)) /2.0
+        # Make mask binary
+        mask_thresh = (torch.max(mask) - torch.min(mask)) / 2.0
         mask = (mask > mask_thresh).float()
-
 
         # Transform to tensor
 
@@ -338,6 +338,7 @@ class MyDataset(Dataset):
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         image = normalizer(image)
+        print("--------------")
         return image, mask
 
     def __getitem__(self, index):
