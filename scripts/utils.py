@@ -338,7 +338,6 @@ class MyDataset(Dataset):
         # Normalize
         normalizer = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         image = normalizer(image)
-        print("--------------")
         return image, mask
 
     def __getitem__(self, index):
