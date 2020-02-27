@@ -2,37 +2,38 @@
 Copyright (C) 2018 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from comet_ml import Experiment
+import argparse
+import os
+import shutil
+import sys
+from pathlib import Path
 
-comet_exp = Experiment(workspace="sunandr", project_name="testing-munit")
+from comet_ml import Experiment  # keep before pytorch
 
+import torch
+import torch.backends.cudnn as cudnn
+from torch.autograd import Variable
+
+from inception_utils import load_inception_net, prepare_inception_metrics
+from trainer import MUNIT_Trainer
 from utils import (
-    get_all_data_loaders,
-    prepare_sub_folder,
-    write_loss,
-    get_config,
-    flatten_opts,
-    write_2images,
     Timer,
-    get_synthetic_data_loader,
+    flatten_opts,
+    get_all_data_loaders,
+    get_config,
     get_data_loader_mask_and_im,
     get_fid_data_loader,
+    get_git_revision_hash,
+    get_synthetic_data_loader,
+    prepare_sub_folder,
+    write_2images,
+    write_loss,
 )
-from inception_utils import prepare_inception_metrics, load_inception_net
-import argparse
-from torch.autograd import Variable
-from trainer import MUNIT_Trainer
-import torch.backends.cudnn as cudnn
-import torch
-from pathlib import Path
 
 try:
     from itertools import izip as zip
 except ImportError:  # will be 3.x series
     pass
-import os
-import sys
-import shutil
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -45,13 +46,15 @@ parser.add_argument("--output_path", type=str, default=".", help="outputs path")
 parser.add_argument("--resume", action="store_true")
 parser.add_argument("--trainer", type=str, default="MUNIT", help="MUNIT|UNIT")
 parser.add_argument(
-    "--git_hash",
-    type=str,
-    default="no-git-hash",
-    help="output of git log --pretty=format:'%h' -n 1",
+    "--project", type=str, default="testing-munit", help="Comet's project_name"
 )
+parser.add_argument(
+    "--workspace", type=str, default="sunandr", help="Comet's workspace"
+)
+
 opts = parser.parse_args()
 
+comet_exp = Experiment(workspace=opts.workspace, project_name=opts.project)
 
 cudnn.benchmark = True
 # Load experiment setting
@@ -62,7 +65,7 @@ config["vgg_model_path"] = opts.output_path
 
 if comet_exp is not None:
     comet_exp.log_asset(file_data=opts.config, file_name=Path(opts.config))
-    comet_exp.log_parameter("git_hash", opts.git_hash)
+    comet_exp.log_parameter("git_hash", get_git_revision_hash())
     comet_exp.log_parameters(flatten_opts(config))
 # Setup model and data loader
 if opts.trainer == "MUNIT":
@@ -327,4 +330,3 @@ if config["semantic_w"] != 0:
                 iterations += 1
                 if iterations >= max_iter:
                     sys.exit("Finish training")
-
