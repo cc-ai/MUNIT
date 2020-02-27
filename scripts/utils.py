@@ -179,7 +179,7 @@ def transform_torchVar():
     transfo = transforms.Compose(
         [
             transforms.ToPILImage(),
-            transforms.Resize(256),
+            transforms.Resize((256, 256)),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
@@ -226,7 +226,9 @@ def get_data_loader_list(
         [transforms.RandomCrop((height, width))] + transform_list if crop else transform_list
     )
     transform_list = (
-        [transforms.Resize(new_size)] + transform_list if new_size is not None else transform_list
+        [transforms.Resize((new_size, new_size))] + transform_list
+        if new_size is not None
+        else transform_list
     )
     transform_list = (
         [transforms.RandomHorizontalFlip()] + transform_list if train else transform_list
@@ -394,7 +396,7 @@ class DatasetInferenceFID(Dataset):
         """
 
         # Resize
-        resize = transforms.Resize(size=self.new_size)
+        resize = transforms.Resize(size=(self.new_size, self.new_size))
         image_a = resize(image_a)
         image_b = resize(image_b)
 
@@ -508,7 +510,7 @@ class MyDatasetSynthetic(Dataset):
 
         # print('debugging mask transform 2 size',mask.size)
         # Resize
-        resize = transforms.Resize(size=self.new_size)
+        resize = transforms.Resize(size=(self.new_size, self.new_size))
         image_a = resize(image_a)
         image_b = resize(image_b)
         # print('dim image after resize',image.size)
@@ -709,7 +711,9 @@ def get_data_loader_folder(
         [transforms.RandomCrop((height, width))] + transform_list if crop else transform_list
     )
     transform_list = (
-        [transforms.Resize(new_size)] + transform_list if new_size is not None else transform_list
+        [transforms.Resize((new_size, new_size))] + transform_list
+        if new_size is not None
+        else transform_list
     )
     transform_list = (
         [transforms.RandomHorizontalFlip()] + transform_list if train else transform_list
