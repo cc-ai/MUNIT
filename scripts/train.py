@@ -158,6 +158,7 @@ shutil.copy(
 iterations = (
     trainer.resume(checkpoint_directory, hyperparameters=config) if opts.resume else 0
 )
+trainer.iterations = iterations
 
 if config["semantic_w"] != 0:
     while True:
@@ -328,5 +329,6 @@ if config["semantic_w"] != 0:
                     trainer.save(checkpoint_directory, iterations)
 
                 iterations += 1
+                trainer.iterations = iterations
                 if iterations >= max_iter:
                     sys.exit("Finish training")

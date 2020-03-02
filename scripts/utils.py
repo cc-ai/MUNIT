@@ -750,7 +750,12 @@ def get_config(config):
         dict -- parsed yaml file
     """
     with open(config, "r") as stream:
-        return yaml.safe_load(stream)
+        conf = yaml.safe_load(stream)
+
+    if "optimizer" not in conf:
+        conf["optimizer"] = "adam"
+
+    return conf
 
 
 def eformat(f, prec):
