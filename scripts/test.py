@@ -20,26 +20,23 @@ import glob
 parser = argparse.ArgumentParser()
 parser.add_argument("--config", type=str, help="network configuration file")
 parser.add_argument("--input", type=str, help="directory of input images")
+parser.add_argument("--mask_dir", type=str, help="directory of masks corresponding to input images")
 parser.add_argument("--output_folder", type=str, help="output image directory")
 parser.add_argument("--checkpoint", type=str, help="checkpoint of generator")
 parser.add_argument("--style", type=str, default="", help="style image path")
 parser.add_argument("--seed", type=int, default=10, help="random seed")
 
 parser.add_argument(
-    "--synchronized",
-    action="store_true",
-    help="whether use synchronized style code or not",
+    "--synchronized", action="store_true", help="whether use synchronized style code or not",
 )
 parser.add_argument(
-    "--save_input",
-    action="store_true",
-    help="whether use synchronized style code or not",
+    "--save_input", action="store_true", help="whether use synchronized style code or not",
 )
 parser.add_argument(
-    "--output_path",
-    type=str,
-    default=".",
-    help="path for logs, checkpoints, and VGG model weight",
+    "--output_path", type=str, default=".", help="path for logs, checkpoints, and VGG model weight",
+)
+parser.add_argument(
+    "--save_mask", action="store_true", help="whether to save mask or not",
 )
 opts = parser.parse_args()
 
@@ -76,11 +73,19 @@ trainer.eval()
 new_size = config["new_size"]
 
 # Define the list of non-flooded images
-list_non_flooded = glob.glob(opts.input+'*')
+list_non_flooded = glob.glob(opts.input + "*")
+
+# Define list of masks:
+if opts.save_mask:
+    list_masks = glob.glob(opts.mask_dir + "*")
+    if len(list_non_flooded) != len(list_masks):
+        sys.exit("Image list and mask list differ in length")
+
 
 # Assert there are some elements inside
-if len(list_non_flooded) ==0:
-    sys.exit('Image list is empty. Please ensure opts.input ends with a /')
+if len(list_non_flooded) == 0:
+    sys.exit("Image list is empty. Please ensure opts.input ends with a /")
+
 
 # Inference
 with torch.no_grad():
@@ -92,30 +97,40 @@ with torch.no_grad():
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
         ]
     )
+
+    mask_transform = transforms.Compose([transforms.Resize(new_size), transforms.ToTensor(),])
+
     # Load and Transform the Style Image
-    style_image = (
-        Variable(transform(Image.open(opts.style).convert("RGB")).unsqueeze(0).cuda())
-    )
+    style_image = Variable(transform(Image.open(opts.style).convert("RGB")).unsqueeze(0).cuda())
     # Extract the style from the Style Image
     _, s_b = trainer.gen.encode(style_image, 2)
-    
+
     for j in tq.tqdm(range(len(list_non_flooded))):
-        
+
         # Define image path
         path_xa = list_non_flooded[j]
-        
+
+        # Mask stuff
+        if opts.save_mask:
+            mask = Image.open(list_masks[j][0])
+            # process
+            mask = Variable(transform(mask).cuda())
+
+            # Make mask binary
+            mask_thresh = (torch.max(mask) - torch.min(mask)) / 2.0
+            mask = (mask > mask_thresh).float()
+            mask = mask[0].unsqueeze(0)
+
         # Load and transform the non_flooded image
-        x_a = Variable(
-            transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda()
-        )
+        x_a = Variable(transform(Image.open(path_xa).convert("RGB")).unsqueeze(0).cuda())
         if opts.save_input:
             inputs = (x_a + 1) / 2.0
             path = os.path.join(opts.output_folder, "input{:03d}.jpg".format(j))
             vutils.save_image(inputs.data, path, padding=0, normalize=True)
-            
+
         # Extract content and style
         c_a, _ = trainer.gen.encode(x_a, 1)
-        
+
         # Perform cross domain translation
         x_ab = trainer.gen.decode(c_a, s_b, 2)
 
@@ -125,5 +140,5 @@ with torch.no_grad():
         # Define output path
         path = os.path.join(opts.output_folder, "output{:03d}.jpg".format(j))
 
-        # Save image 
+        # Save image
         vutils.save_image(outputs.data, path, padding=0, normalize=True)
