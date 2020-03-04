@@ -338,8 +338,8 @@ class MUNIT_Trainer(nn.Module):
         x_ba_augment = torch.cat([x_ba, mask_b], dim=1)
         x_ab_augment = torch.cat([x_ab, mask_a], dim=1)
 
-        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba_augment)
-        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab_augment)
+        self.loss_gen_adv_a = self.dis_a.calc_gen_loss(x_ba_augment, comet_exp, mode="a")
+        self.loss_gen_adv_b = self.dis_b.calc_gen_loss(x_ab_augment, comet_exp, mode="b")
 
         # domain-invariant perceptual loss
         self.loss_gen_vgg_a = (
@@ -822,8 +822,12 @@ class MUNIT_Trainer(nn.Module):
         x_b_augment = torch.cat([x_b, m_b], dim=1)
 
         # D loss
-        self.loss_dis_a = self.dis_a.calc_dis_loss(x_ba_augment.detach(), x_a_augment)
-        self.loss_dis_b = self.dis_b.calc_dis_loss(x_ab_augment.detach(), x_b_augment)
+        self.loss_dis_a = self.dis_a.calc_dis_loss(
+            x_ba_augment.detach(), x_a_augment, comet_exp, mode="a"
+        )
+        self.loss_dis_b = self.dis_b.calc_dis_loss(
+            x_ab_augment.detach(), x_b_augment, comet_exp, mode="b"
+        )
 
         self.loss_dis_total = (
             hyperparameters["gan_w"] * self.loss_dis_a + hyperparameters["gan_w"] * self.loss_dis_b

@@ -75,7 +75,7 @@ class MsImageDis(nn.Module):
             x = self.downsample(x)
         return outputs
 
-    def calc_dis_loss(self, input_fake, input_real):
+    def calc_dis_loss(self, input_fake, input_real, comet_exp=None, mode=None):
         # calculate the loss to train D
         outs0 = self.forward(input_fake)
         outs1 = self.forward(input_real)
@@ -97,8 +97,12 @@ class MsImageDis(nn.Module):
                 )
             elif self.gan_type == "wgan":
                 loss += torch.mean(out1) - torch.mean(out0)
+                if mode != None and type(mode) == str:
+                    comet_exp.log_metric("loss_dis_real_" + mode, torch.mean(out1).cpu().detach())
+                    comet_exp.log_metric("loss_dis_fake_" + mode, -torch.mean(out0).cpu().detach())
                 # Get gradient penalty loss
                 loss_gp = self.calc_gradient_penalty(input_real, input_fake)
+                comet_exp.log_metric("loss_gp" + mode, loss_gp.cpu().detach())
                 loss += loss_gp
 
             else:
@@ -140,7 +144,7 @@ class MsImageDis(nn.Module):
         gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
         return gradient_penalty
 
-    def calc_gen_loss(self, input_fake):
+    def calc_gen_loss(self, input_fake, comet_exp=None, mode=None):
         # calculate the loss to train G
         outs0 = self.forward(input_fake)
         loss = 0
@@ -152,6 +156,8 @@ class MsImageDis(nn.Module):
                 loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
             elif self.gan_type == "wgan":
                 loss += torch.mean(out0)
+                if mode != None and type(mode) == str:
+                    comet_exp.log_metric("loss_gen_wgan_" + mode, torch.mean(out0).cpu().detach())
 
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
