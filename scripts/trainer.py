@@ -403,14 +403,23 @@ class MUNIT_Trainer(nn.Module):
         self.gen_opt.step()
 
         if comet_exp is not None:
+
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a.cpu().detach())
             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b.cpu().detach())
             comet_exp.log_metric("loss_gen_recon_x_a", self.loss_gen_recon_x_a.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a.cpu().detach())
             comet_exp.log_metric("loss_gen_recon_x_b", self.loss_gen_recon_x_b.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b.cpu().detach())
-            comet_exp.log_metric("loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a.cpu().detach())
-            comet_exp.log_metric("loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b.cpu().detach())
+
+            if hyperparameters["recon_c_w"] > 0:
+                comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a.cpu().detach())
+                comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b.cpu().detach())
+
+            if hyperparameters["recon_x_cyc_w"] > 0:
+                comet_exp.log_metric(
+                    "loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a.cpu().detach()
+                )
+                comet_exp.log_metric(
+                    "loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b.cpu().detach()
+                )
             comet_exp.log_metric("loss_gen_total", self.loss_gen_total.cpu().detach())
 
             if hyperparameters["vgg_w"] > 0:
