@@ -39,7 +39,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--config", type=str, default="configs/config256.yaml", help="Path to the config file.",
 )
-parser.add_argument("--output_path", type=str, default=".", help="outputs path")
+parser.add_argument(
+    "--output_path", type=str, default="/network/tmp1/ccai/checkpoints/sun/", help="outputs path"
+)
 parser.add_argument("--resume", action="store_true")
 parser.add_argument("--trainer", type=str, default="MUNIT", help="MUNIT|UNIT")
 parser.add_argument(
@@ -221,10 +223,13 @@ if config["semantic_w"] != 0:
                 )
 
                 # Main training code
-                trainer.dis_update(images_a, images_b, config, comet_exp)
+
+                trainer.dis_update(images_a, images_b, mask_a, mask_b, config, comet_exp)
+
                 # Gen update
                 if (iterations + 1) % config["ratio_disc_gen"] == 0:
                     trainer.gen_update(images_a, images_b, config, mask_a, mask_b, comet_exp)
+
                 # Domain classifier update
                 if config["domain_adv_w"] > 0:
                     trainer.domain_classifier_update(images_a, images_b, config, comet_exp)
@@ -237,6 +242,8 @@ if config["semantic_w"] != 0:
                     trainer.domain_classifier_sr_update(
                         images_a,
                         images_b,
+                        mask_a,
+                        mask_b,
                         False,
                         config["adaptation"]["dfeat_lambda"],
                         iterations + 1,
@@ -262,7 +269,7 @@ if config["semantic_w"] != 0:
                         #                   mask_s = mask_s.cuda().detach()
 
                         # Main training code
-                        trainer.dis_update(images_as, images_bs, config, comet_exp)
+                        trainer.dis_update(images_as, images_bs, mask_s, mask_s, config, comet_exp)
                         # Same mask because we know the area where we want to flood
                         if config["synthetic_seg_gt"] == 0:
                             trainer.gen_update(
@@ -295,6 +302,7 @@ if config["semantic_w"] != 0:
                             trainer.domain_classifier_sr_update(
                                 images_as,
                                 images_bs,
+                                mask_s,
                                 True,
                                 config["adaptation"]["dfeat_lambda"],
                                 iterations + 1,
@@ -304,6 +312,7 @@ if config["semantic_w"] != 0:
                         trainer.segmentation_head_update(
                             images_as,
                             images_bs,
+                            mask_s,
                             sem_a,
                             sem_b,
                             config["adaptation"]["sem_seg_lambda"],

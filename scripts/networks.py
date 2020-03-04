@@ -29,9 +29,7 @@ class MsImageDis(nn.Module):
         self.num_scales = params["num_scales"]
         self.pad_type = params["pad_type"]
         self.input_dim = input_dim
-        self.downsample = nn.AvgPool2d(
-            3, stride=2, padding=[1, 1], count_include_pad=False
-        )
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
         self.cnns = nn.ModuleList()
         for _ in range(self.num_scales):
             self.cnns.append(self._make_net())
@@ -81,11 +79,11 @@ class MsImageDis(nn.Module):
         outs0 = self.forward(input_fake)
         outs1 = self.forward(input_real)
         loss = 0
-        #print(len(outs0), len(outs1))
+        # print(len(outs0), len(outs1))
 
         for it, (out0, out1) in enumerate(zip(outs0, outs1)):
-        #    print(out0.shape)
-        #    print(out1.shape)
+            #    print(out0.shape)
+            #    print(out1.shape)
 
             if self.gan_type == "lsgan":
                 loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2)
@@ -113,18 +111,17 @@ class MsImageDis(nn.Module):
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
         return loss
-    
-    
+
     def calc_dis_loss_sr(self, input_sim, input_real):
         # calculate the loss to train D
         outs0 = self.forward(input_sim)
         outs1 = self.forward(input_real)
         loss = 0
-        #print(len(outs0), len(outs1))
+        # print(len(outs0), len(outs1))
 
         for it, (out0, out1) in enumerate(zip(outs0, outs1)):
-        #    print(out0.shape)
-        #    print(out1.shape)
+            #    print(out0.shape)
+            #    print(out1.shape)
 
             if self.gan_type == "lsgan":
                 loss += torch.mean((out0 - 0) ** 2) + torch.mean((out1 - 1) ** 2)
@@ -138,16 +135,16 @@ class MsImageDis(nn.Module):
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
         return loss
-    
+
     def calc_gen_loss_sr(self, input_fake):
         # calculate the loss to train D
         outs0 = self.forward(input_fake)
         loss = 0
-        #print(len(outs0), len(outs1))
+        # print(len(outs0), len(outs1))
 
         for it, (out0) in enumerate(outs0):
-        #    print(out0.shape)
-        #    print(out1.shape)
+            #    print(out0.shape)
+            #    print(out1.shape)
 
             if self.gan_type == "lsgan":
                 loss += torch.mean((out0 - 0.5) ** 2)
@@ -166,227 +163,6 @@ class MsImageDis(nn.Module):
 ##################################################################################
 # Generator
 ##################################################################################
-
-
-class AdaINGen(nn.Module):
-    # AdaIN auto-encoder architecture
-    def __init__(self, input_dim, params):
-        super(AdaINGen, self).__init__()
-        dim = params["dim"]
-        style_dim = params["style_dim"]
-        n_downsample = params["n_downsample"]
-        n_res = params["n_res"]
-        activ = params["activ"]
-        pad_type = params["pad_type"]
-        mlp_dim = params["mlp_dim"]
-
-        # style encoder
-        self.enc_style = StyleEncoder(
-            4, input_dim, dim, style_dim, norm="none", activ=activ, pad_type=pad_type
-        )
-
-        # content encoder
-        self.enc_content = ContentEncoder(
-            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
-        )
-        self.dec = Decoder(
-            n_downsample,
-            n_res,
-            self.enc_content.output_dim,
-            input_dim,
-            res_norm="adain",
-            activ=activ,
-            pad_type=pad_type,
-        )
-
-        # MLP to generate AdaIN parameters
-        self.mlp = MLP(
-            style_dim,
-            self.get_num_adain_params(self.dec),
-            mlp_dim,
-            3,
-            norm="none",
-            activ=activ,
-        )
-
-    def forward(self, images):
-        # reconstruct an image
-        content, style_fake = self.encode(images)
-        images_recon = self.decode(content, style_fake)
-        return images_recon
-
-    def encode(self, images):
-        # encode an image to its content and style codes
-        style_fake = self.enc_style(images)
-        content = self.enc_content(images)
-        return content, style_fake
-
-    def decode(self, content, style):
-        # decode content and style codes to an image
-        adain_params = self.mlp(style)
-        self.assign_adain_params(adain_params, self.dec)
-        images = self.dec(content)
-        return images
-
-    def assign_adain_params(self, adain_params, model):
-        # assign the adain_params to the AdaIN layers in model
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                mean = adain_params[:, : m.num_features]
-                std = adain_params[:, m.num_features : 2 * m.num_features]
-                m.bias = mean.contiguous().view(-1)
-                m.weight = std.contiguous().view(-1)
-                if adain_params.size(1) > 2 * m.num_features:
-                    adain_params = adain_params[:, 2 * m.num_features :]
-
-    def get_num_adain_params(self, model):
-        # return the number of AdaIN parameters needed by the model
-        num_adain_params = 0
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                num_adain_params += 2 * m.num_features
-        return num_adain_params
-
-    def get_adain_param(self, style):
-        """
-        output of mlp on style
-        """
-        adain_params = self.mlp(style)
-        return adain_params
-
-
-##################################################################################
-# Two Generators but one style
-##################################################################################
-
-
-class AdaINGen_double(nn.Module):
-
-    # AdaIN auto-encoder architecture
-    def __init__(self, input_dim, params):
-        super(AdaINGen_double, self).__init__()
-        dim = params["dim"]
-        style_dim = params["style_dim"]
-        n_downsample = params["n_downsample"]
-        n_res = params["n_res"]
-        activ = params["activ"]
-        pad_type = params["pad_type"]
-        mlp_dim = params["mlp_dim"]
-
-        # style encoder
-        self.enc_style = StyleEncoder(
-            4, input_dim, dim, style_dim, norm="none", activ=activ, pad_type=pad_type
-        )
-
-        # content encoder
-        self.enc1_content = ContentEncoder(
-            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
-        )
-        self.enc2_content = ContentEncoder(
-            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
-        )
-
-        self.dec1 = Decoder(
-            n_downsample,
-            n_res,
-            self.enc1_content.output_dim,
-            input_dim,
-            res_norm="adain",
-            activ=activ,
-            pad_type=pad_type,
-        )
-        self.dec2 = Decoder(
-            n_downsample,
-            n_res,
-            self.enc2_content.output_dim,
-            input_dim,
-            res_norm="adain",
-            activ=activ,
-            pad_type=pad_type,
-        )
-
-        # MLP to generate AdaIN parameters
-        self.mlp1 = MLP(
-            style_dim,
-            self.get_num_adain_params(self.dec1),
-            mlp_dim,
-            3,
-            norm="none",
-            activ=activ,
-        )
-        self.mlp2 = MLP(
-            style_dim,
-            self.get_num_adain_params(self.dec2),
-            mlp_dim,
-            3,
-            norm="none",
-            activ=activ,
-        )
-
-    def forward(self, images, encoder_name):
-        # reconstruct an image
-        content, style_fake = self.encode(images, encoder_name)
-        images_recon = self.decode(content, style_fake, encoder_name)
-        return images_recon
-
-    def encode(self, images, encoder_name):
-        # encode an image to its content and style codes
-        style_fake = self.enc_style(images)
-        if encoder_name == 1:
-            content = self.enc1_content(images)
-        elif encoder_name == 2:
-            content = self.enc2_content(images)
-        else:
-            print("wrong value for encoder_name, must be 0 or 1")
-            return None
-        return content, style_fake
-
-    def decode(self, content, style, encoder_name):
-        # decode content and style codes to an image
-        if encoder_name == 1:
-            adain_params = self.mlp1(style)
-            self.assign_adain_params(adain_params, self.dec1)
-            images = self.dec1(content)
-        elif encoder_name == 2:
-            adain_params = self.mlp2(style)
-            self.assign_adain_params(adain_params, self.dec2)
-            images = self.dec2(content)
-        else:
-            print("wrong value for encoder_name, must be 0 or 1")
-            return None
-        return images
-
-    def get_adain_param(self, style, encoder_name):
-        """
-        output of mlp on style
-        """
-        if encoder_name == 1:
-            adain_params = self.mlp1(style)
-        elif encoder_name == 2:
-            adain_params = self.mlp2(style)
-        else:
-            print("wrong value for encoder_name, must be 0 or 1")
-            return None
-        return adain_params
-
-    def assign_adain_params(self, adain_params, model):
-        # assign the adain_params to the AdaIN layers in model
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                mean = adain_params[:, : m.num_features]
-                std = adain_params[:, m.num_features : 2 * m.num_features]
-                m.bias = mean.contiguous().view(-1)
-                m.weight = std.contiguous().view(-1)
-                if adain_params.size(1) > 2 * m.num_features:
-                    adain_params = adain_params[:, 2 * m.num_features :]
-
-    def get_num_adain_params(self, model):
-        # return the number of AdaIN parameters needed by the model
-        num_adain_params = 0
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                num_adain_params += 2 * m.num_features
-        return num_adain_params
 
 
 class VAEGen(nn.Module):
@@ -417,9 +193,7 @@ class VAEGen(nn.Module):
         # This is a reduced VAE implementation where we assume the outputs are multivariate Gaussian distribution with mean = hiddens and std_dev = all ones.
         hiddens = self.encode(images)
         if self.training == True:
-            noise = Variable(
-                torch.randn(hiddens.size()).cuda(hiddens.data.get_device())
-            )
+            noise = Variable(torch.randn(hiddens.size()).cuda(hiddens.data.get_device()))
             images_recon = self.decode(hiddens + noise)
         else:
             images_recon = self.decode(hiddens)
@@ -445,29 +219,16 @@ class StyleEncoder(nn.Module):
         super(StyleEncoder, self).__init__()
         self.model = []
         self.model += [
-            Conv2dBlock(
-                input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type
-            )
+            Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type)
         ]
         for i in range(2):
             self.model += [
-                Conv2dBlock(
-                    dim,
-                    2 * dim,
-                    4,
-                    2,
-                    1,
-                    norm=norm,
-                    activation=activ,
-                    pad_type=pad_type,
-                )
+                Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type,)
             ]
             dim *= 2
         for i in range(n_downsample - 2):
             self.model += [
-                Conv2dBlock(
-                    dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type
-                )
+                Conv2dBlock(dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type)
             ]
         self.model += [nn.AdaptiveAvgPool2d(1)]  # global average pooling
         self.model += [nn.Conv2d(dim, style_dim, 1, 1, 0)]
@@ -483,29 +244,17 @@ class ContentEncoder(nn.Module):
         super(ContentEncoder, self).__init__()
         self.model = []
         self.model += [
-            Conv2dBlock(
-                input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type
-            )
+            Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type)
         ]
         # downsampling blocks
         for i in range(n_downsample):
             self.model += [
-                Conv2dBlock(
-                    dim,
-                    2 * dim,
-                    4,
-                    2,
-                    1,
-                    norm=norm,
-                    activation=activ,
-                    pad_type=pad_type,
-                )
+                Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type=pad_type,)
             ]
             dim *= 2
+
         # residual blocks
-        self.model += [
-            ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)
-        ]
+        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
         self.output_dim = dim
 
@@ -515,14 +264,7 @@ class ContentEncoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(
-        self,
-        n_upsample,
-        n_res,
-        dim,
-        output_dim,
-        res_norm="adain",
-        activ="relu",
-        pad_type="zero",
+        self, n_upsample, n_res, dim, output_dim, res_norm="adain", activ="relu", pad_type="zero",
     ):
         super(Decoder, self).__init__()
 
@@ -534,28 +276,14 @@ class Decoder(nn.Module):
             self.model += [
                 nn.Upsample(scale_factor=2),
                 Conv2dBlock(
-                    dim,
-                    dim // 2,
-                    5,
-                    1,
-                    2,
-                    norm="ln",
-                    activation=activ,
-                    pad_type=pad_type,
+                    dim, dim // 2, 5, 1, 2, norm="ln", activation=activ, pad_type=pad_type,
                 ),
             ]
             dim //= 2
         # use reflection padding in the last conv layer
         self.model += [
             Conv2dBlock(
-                dim,
-                output_dim,
-                7,
-                1,
-                3,
-                norm="none",
-                activation="tanh",
-                pad_type=pad_type,
+                dim, output_dim, 7, 1, 3, norm="none", activation="tanh", pad_type=pad_type,
             )
         ]
         self.model = nn.Sequential(*self.model)
@@ -572,9 +300,7 @@ class ResBlocks(nn.Module):
         super(ResBlocks, self).__init__()
         self.model = []
         for i in range(num_blocks):
-            self.model += [
-                ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type)
-            ]
+            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type)]
         self.model = nn.Sequential(*self.model)
 
     def forward(self, x):
@@ -607,15 +333,9 @@ class ResBlock(nn.Module):
 
         model = []
         model += [
-            Conv2dBlock(
-                dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type
-            )
+            Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)
         ]
-        model += [
-            Conv2dBlock(
-                dim, dim, 3, 1, 1, norm=norm, activation="none", pad_type=pad_type
-            )
-        ]
+        model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation="none", pad_type=pad_type)]
         self.model = nn.Sequential(*model)
 
     def forward(self, x):
@@ -684,14 +404,10 @@ class Conv2dBlock(nn.Module):
         # initialize convolution
         if norm == "sn":
             self.conv = SpectralNorm(
-                nn.Conv2d(
-                    input_dim, output_dim, kernel_size, stride, bias=self.use_bias
-                )
+                nn.Conv2d(input_dim, output_dim, kernel_size, stride, bias=self.use_bias)
             )
         else:
-            self.conv = nn.Conv2d(
-                input_dim, output_dim, kernel_size, stride, bias=self.use_bias
-            )
+            self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, bias=self.use_bias)
 
     def forward(self, x):
         x = self.conv(self.pad(x))
@@ -941,3 +657,284 @@ class SpectralNorm(nn.Module):
     def forward(self, *args):
         self._update_u_v()
         return self.module.forward(*args)
+
+
+class SPADE(nn.Module):
+    def __init__(self, param_free_norm_type, kernel_size, norm_nc, cond_nc):
+        super().__init__()
+
+        if param_free_norm_type == "instance":
+            self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
+        # elif param_free_norm_type == "syncbatch":
+        #     self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
+        elif param_free_norm_type == "batch":
+            self.param_free_norm = nn.BatchNorm2d(norm_nc, affine=False)
+        else:
+            raise ValueError(
+                "%s is not a recognized param-free norm type in SPADE" % param_free_norm_type
+            )
+
+        # The dimension of the intermediate embedding space. Yes, hardcoded.
+        nhidden = 128
+        self.norm_nc = norm_nc
+        pw = kernel_size // 2
+        self.mlp_shared = nn.Sequential(
+            nn.Conv2d(cond_nc, nhidden, kernel_size=kernel_size, padding=pw), nn.ReLU()
+        )
+        self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=kernel_size, padding=pw)
+        self.mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=kernel_size, padding=pw)
+
+    def forward(self, x, segmap):
+        # Part 1. generate parameter-free normalized activations
+        normalized = self.param_free_norm(x)
+
+        # Part 2. produce scaling and bias conditioned on semantic map
+        segmap = F.interpolate(segmap, size=x.size()[2:], mode="nearest")
+        actv = self.mlp_shared(segmap)
+        gamma = self.mlp_gamma(actv)
+        beta = self.mlp_beta(actv)
+
+        # apply scale and bias
+        out = normalized * (1 + gamma) + beta
+
+        return out
+
+
+##################################################################################
+# SPADE
+##################################################################################
+class SPADEResnetBlock(nn.Module):
+    def __init__(
+        self, fin, fout, cond_nc, spade_use_spectral_norm, spade_param_free_norm, spade_kernel_size,
+    ):
+        super().__init__()
+        # Attributes
+
+        self.fin = fin
+        self.fout = fout
+        self.use_spectral_norm = spade_use_spectral_norm
+        self.param_free_norm = spade_param_free_norm
+        self.kernel_size = spade_kernel_size
+
+        self.learned_shortcut = fin != fout
+        fmiddle = min(fin, fout)
+
+        # create conv layers
+        self.conv_0 = nn.Conv2d(fin, fmiddle, kernel_size=3, padding=1)
+        self.conv_1 = nn.Conv2d(fmiddle, fout, kernel_size=3, padding=1)
+        if self.learned_shortcut:
+            self.conv_s = nn.Conv2d(fin, fout, kernel_size=1, bias=False)
+
+        # apply spectral norm if specified
+        if spade_use_spectral_norm:
+            self.conv_0 = SpectralNorm(self.conv_0)
+            self.conv_1 = SpectralNorm(self.conv_1)
+            if self.learned_shortcut:
+                self.conv_s = SpectralNorm(self.conv_s)
+
+        self.norm_0 = SPADE(spade_param_free_norm, spade_kernel_size, fin, cond_nc)
+        self.norm_1 = SPADE(spade_param_free_norm, spade_kernel_size, fmiddle, cond_nc)
+        if self.learned_shortcut:
+            self.norm_s = SPADE(spade_param_free_norm, spade_kernel_size, fin, cond_nc)
+
+    # note the resnet block with SPADE also takes in |seg|,
+    # the semantic segmentation map as input
+    def forward(self, x, seg):
+        x_s = self.shortcut(x, seg)
+
+        dx = self.conv_0(self.activation(self.norm_0(x, seg)))
+        dx = self.conv_1(self.activation(self.norm_1(dx, seg)))
+
+        out = x_s + dx
+        return out
+
+    def shortcut(self, x, seg):
+        if self.learned_shortcut:
+            x_s = self.conv_s(self.norm_s(x, seg))
+        else:
+            x_s = x
+        return x_s
+
+    def activation(self, x):
+        return F.leaky_relu(x, 2e-1)
+
+    def __str__(self):
+        return strings.spaderesblock(self)
+
+
+class SpadeDecoder(nn.Module):
+    def __init__(
+        self,
+        latent_dim,
+        cond_nc,
+        spade_n_up,
+        spade_use_spectral_norm,
+        spade_param_free_norm,
+        spade_kernel_size,
+    ):
+        """Create a SPADE-based decoder, which forwards z and the conditioning
+        tensors seg (in the original paper, conditioning is on a semantic map only).
+        All along, z is conditioned on seg. First 3 SpadeResblocks (SRB) do not shrink
+        the channel dimension, and an upsampling is applied after each. Therefore
+        2 upsamplings at this point. Then, for each remaining upsamplings
+        (w.r.t. spade_n_up), the SRB shrinks channels by 2. Before final conv to get 3
+        channels, the number of channels is therefore:
+            final_nc = channels(z) * 2 ** (spade_n_up - 2)
+        Args:
+            latent_shape (tuple): z's shape (only the number of channels matters)
+            cond_nc (int): conditioning tensor's expected number of channels
+            spade_n_up (int): Number of total upsamplings from z
+            spade_use_spectral_norm (bool): use spectral normalization?
+            spade_param_free_norm (str): norm to use before SPADE de-normalization
+            spade_kernel_size (int): SPADE conv layers' kernel size
+        Returns:
+            [type]: [description]
+        """
+        super().__init__()
+
+        self.z_nc = latent_dim
+        self.spade_n_up = spade_n_up
+
+        self.head_0 = SPADEResnetBlock(
+            self.z_nc,
+            self.z_nc,
+            cond_nc,
+            spade_use_spectral_norm,
+            spade_param_free_norm,
+            spade_kernel_size,
+        )
+
+        self.G_middle_0 = SPADEResnetBlock(
+            self.z_nc,
+            self.z_nc,
+            cond_nc,
+            spade_use_spectral_norm,
+            spade_param_free_norm,
+            spade_kernel_size,
+        )
+        self.G_middle_1 = SPADEResnetBlock(
+            self.z_nc,
+            self.z_nc,
+            cond_nc,
+            spade_use_spectral_norm,
+            spade_param_free_norm,
+            spade_kernel_size,
+        )
+
+        self.up_spades = nn.Sequential(
+            *[
+                SPADEResnetBlock(
+                    self.z_nc // 2 ** i,
+                    self.z_nc // 2 ** (i + 1),
+                    cond_nc,
+                    spade_use_spectral_norm,
+                    spade_param_free_norm,
+                    spade_kernel_size,
+                )
+                for i in range(spade_n_up - 2)
+            ]
+        )
+
+        self.final_nc = self.z_nc // 2 ** (spade_n_up - 2)
+
+        self.conv_img = nn.Conv2d(self.final_nc, 3, 3, padding=1)
+
+        self.upsample = nn.Upsample(scale_factor=2)
+
+    def _apply(self, fn):
+        # print("Applying SpadeDecoder", fn)
+        super()._apply(fn)
+        # self.head_0 = fn(self.head_0)
+        # self.G_middle_0 = fn(self.G_middle_0)
+        # self.G_middle_1 = fn(self.G_middle_1)
+        # for i, up in enumerate(self.up_spades):
+        #     self.up_spades[i] = fn(up)
+        # self.conv_img = fn(self.conv_img)
+        return self
+
+    def forward(self, z, cond):
+        y = self.head_0(z, cond)
+
+        y = self.upsample(y)
+        y = self.G_middle_0(y, cond)
+        y = self.upsample(y)
+        y = self.G_middle_1(y, cond)
+
+        for i, up in enumerate(self.up_spades):
+            y = self.upsample(y)
+            y = up(y, cond)
+
+        y = self.conv_img(F.leaky_relu(y, 2e-1))
+        y = torch.tanh(y)
+        return y
+
+    def __str__(self):
+        return strings.spadedecoder(self)
+
+
+class SpadeGen(nn.Module):
+    def __init__(self, input_dim, params):
+        super(SpadeGen, self).__init__()
+        dim = params["dim"]
+        n_downsample = params["n_downsample"]
+        n_res = params["n_res"]
+        activ = params["activ"]
+        pad_type = params["pad_type"]
+        mlp_dim = params["mlp_dim"]
+
+        # content encoder
+        self.enc1_content = ContentEncoder(
+            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
+        )
+        self.enc2_content = ContentEncoder(
+            n_downsample, n_res, input_dim, dim, "in", activ, pad_type=pad_type
+        )
+
+        latent_dim = dim * (2 ** n_downsample)
+
+        self.dec1 = SpadeDecoder(
+            latent_dim=latent_dim,
+            cond_nc=1,
+            spade_n_up=n_downsample,
+            spade_use_spectral_norm=True,
+            spade_param_free_norm="instance",
+            spade_kernel_size=3,
+        )
+
+        self.dec2 = SpadeDecoder(
+            latent_dim=latent_dim,
+            cond_nc=1,
+            spade_n_up=n_downsample,
+            spade_use_spectral_norm=True,
+            spade_param_free_norm="instance",
+            spade_kernel_size=3,
+        )
+
+    def forward(self, images, masks, encoder_name):
+        # reconstruct an image
+        content = self.encode(images, encoder_name)
+        images_recon = self.decode(content, masks, encoder_name)
+        return images_recon
+
+    def encode(self, images, encoder_name):
+        # encode an image to its content and style codes
+        if encoder_name == 1:
+            content = self.enc1_content(images)
+        elif encoder_name == 2:
+            content = self.enc2_content(images)
+        else:
+            print("wrong value for encoder_name, must be 0 or 1")
+            return None
+        return content
+
+    def decode(self, content, mask, encoder_name):
+        # decode content and style codes to an image
+        if encoder_name == 1:
+            images = self.dec1(content, mask)
+        elif encoder_name == 2:
+            images = self.dec2(content, mask)
+        else:
+            print("wrong value for encoder_name, must be 0 or 1")
+            return None
+        return images
+
