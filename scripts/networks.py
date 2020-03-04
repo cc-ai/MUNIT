@@ -6,6 +6,7 @@ from torch import nn
 from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
+import torch.autograd as autograd
 
 try:
     from itertools import izip as zip
@@ -94,9 +95,50 @@ class MsImageDis(nn.Module):
                     F.binary_cross_entropy(F.sigmoid(out0), all0)
                     + F.binary_cross_entropy(F.sigmoid(out1), all1)
                 )
+            elif self.gan_type == "wgan":
+                loss += torch.mean(out1) - torch.mean(out0)
+                # Get gradient penalty loss
+                loss_gp = self.calc_gradient_penalty(input_real, input_fake)
+                loss += loss_gp
+
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
         return loss
+
+    def calc_gradient_penalty(self, real_data, fake_data):
+        #! Hardcoded
+        DIM = 256
+        LAMBDA = 10
+        nc = self.input_dim + 1
+        alpha = torch.rand(real_data.shape)
+        # alpha = alpha.view(batch_size, nc, DIM, DIM)
+        # alpha = alpha.expand(batch_size, int(real_data.nelement() / batch_size)).contiguous()
+
+        alpha = alpha.cuda()
+        interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
+
+        interpolates = interpolates.cuda()
+        interpolates.requires_grad_(True)
+
+        disc_interpolates = self.forward(interpolates)
+
+        for count, i in enumerate(disc_interpolates):
+            gradients_temp = autograd.grad(
+                outputs=i,
+                inputs=interpolates,
+                grad_outputs=torch.ones(i.size()).cuda(),
+                create_graph=True,
+                retain_graph=True,
+                only_inputs=True,
+            )[0]
+            if count == 0:
+                gradients = gradients_temp
+            else:
+                gradients += gradients_temp
+
+        gradients = gradients.view(gradients.size(0), -1)
+        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
+        return gradient_penalty
 
     def calc_gen_loss(self, input_fake):
         # calculate the loss to train G
@@ -108,6 +150,9 @@ class MsImageDis(nn.Module):
             elif self.gan_type == "nsgan":
                 all1 = Variable(torch.ones_like(out0.data).cuda(), requires_grad=False)
                 loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
+            elif self.gan_type == "wgan":
+                loss += torch.mean(out0)
+
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
         return loss
