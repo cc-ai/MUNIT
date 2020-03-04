@@ -20,6 +20,7 @@ import numpy as np
 import torch.nn.init as init
 import time
 from resnet import resnet34
+import subprocess
 
 # Methods
 # get_all_data_loaders          : primary data loader interface (load trainA, testA, trainB, testB)
@@ -749,7 +750,12 @@ def get_config(config):
         dict -- parsed yaml file
     """
     with open(config, "r") as stream:
-        return yaml.safe_load(stream)
+        conf = yaml.safe_load(stream)
+
+    if "optimizer" not in conf:
+        conf["optimizer"] = "adam"
+
+    return conf
 
 
 def eformat(f, prec):
@@ -1425,3 +1431,12 @@ def flatten_opts(opts):
 
     p(opts, vals=values_list)
     return dict(values_list)
+
+
+def get_git_revision_hash():
+    """Get current git hash the code is run from
+
+    Returns:
+        str: git hash
+    """
+    return subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()

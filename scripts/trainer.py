@@ -4,6 +4,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 """
 from comet_ml import Experiment
 from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen
+from extraadam import ExtraAdam
 from utils import (
     weights_init,
     get_model_list,
@@ -17,7 +18,7 @@ from utils import (
     load_segmentation_model,
     decode_segmap,
     domainClassifier,
-    merge_classes
+    merge_classes,
 )
 from torch.autograd import Variable
 from torchvision import transforms
@@ -38,23 +39,30 @@ class MUNIT_Trainer(nn.Module):
         self.recon_mask = hyperparameters["recon_mask"] == 1
         self.dann_scheduler = None
         self.full_adaptation = hyperparameters["adaptation"]["full_adaptation"] == 1
+        self.hyperparameters = hyperparameters
+
+        optimizer = (
+            torch.optim.Adam
+            if "extra" not in hyperparameters["optimizer"]
+            else ExtraAdam
+        )
 
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif_ab = hyperparameters["domain_adv_w"] > 0
         else:
             self.domain_classif_ab = False
 
-        if hyperparameters['adaptation']['dfeat_lambda'] > 0:
+        if hyperparameters["adaptation"]["dfeat_lambda"] > 0:
             self.use_classifier_sr = True
         else:
             self.use_classifier_sr = False
 
-        if hyperparameters['adaptation']['sem_seg_lambda'] > 0:
+        if hyperparameters["adaptation"]["sem_seg_lambda"] > 0:
             self.train_seg = True
         else:
             self.train_seg = False
 
-        if hyperparameters['adaptation']['output_classifier_lambda'] > 0:
+        if hyperparameters["adaptation"]["output_classifier_lambda"] > 0:
             self.use_output_classifier_sr = True
         else:
             self.use_output_classifier_sr = False
@@ -101,13 +109,13 @@ class MUNIT_Trainer(nn.Module):
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
-        self.dis_opt = torch.optim.Adam(
+        self.dis_opt = optimizer(
             [p for p in dis_params if p.requires_grad],
             lr=lr,
             betas=(beta1, beta2),
             weight_decay=hyperparameters["weight_decay"],
         )
-        self.gen_opt = torch.optim.Adam(
+        self.gen_opt = optimizer(
             [p for p in gen_params if p.requires_grad],
             lr=lr,
             betas=(beta1, beta2),
@@ -144,7 +152,7 @@ class MUNIT_Trainer(nn.Module):
         ):
             self.domain_classifier_ab = domainClassifier(256)
             dann_params = list(self.domain_classifier_ab.parameters())
-            self.dann_opt = torch.optim.Adam(
+            self.dann_opt = optimizer(
                 [p for p in dann_params if p.requires_grad],
                 lr=lr,
                 betas=(beta1, beta2),
@@ -158,8 +166,10 @@ class MUNIT_Trainer(nn.Module):
 
             self.domain_classifier_sr_b = domainClassifier(256)
             self.domain_classifier_sr_a = domainClassifier(256)
-            dann_params = list(self.domain_classifier_sr_a.parameters()) + list(self.domain_classifier_sr_b.parameters())
-            self.classif_opt_sr = torch.optim.Adam(
+            dann_params = list(self.domain_classifier_sr_a.parameters()) + list(
+                self.domain_classifier_sr_b.parameters()
+            )
+            self.classif_opt_sr = optimizer(
                 [p for p in dann_params if p.requires_grad],
                 lr=lr,
                 betas=(beta1, beta2),
@@ -167,17 +177,21 @@ class MUNIT_Trainer(nn.Module):
             )
             self.domain_classifier_sr_a.apply(weights_init("gaussian"))
             self.domain_classifier_sr_b.apply(weights_init("gaussian"))
-            self.classif_sr_scheduler = get_scheduler(self.classif_opt_sr, hyperparameters)
+            self.classif_sr_scheduler = get_scheduler(
+                self.classif_opt_sr, hyperparameters
+            )
 
         if self.use_output_classifier_sr:
             self.output_classifier_sr_a = MsImageDis(
-            hyperparameters["input_dim_a"], hyperparameters["dis"]
+                hyperparameters["input_dim_a"], hyperparameters["dis"]
             )  # discriminator for domain a,sr
             self.output_classifier_sr_b = MsImageDis(
-            hyperparameters["input_dim_a"], hyperparameters["dis"]
+                hyperparameters["input_dim_a"], hyperparameters["dis"]
             )  # discriminator for domain b,sr
-            dann_params = list(self.output_classifier_sr_a.parameters()) + list(self.output_classifier_sr_b.parameters())
-            self.output_classif_opt_sr = torch.optim.Adam(
+            dann_params = list(self.output_classifier_sr_a.parameters()) + list(
+                self.output_classifier_sr_b.parameters()
+            )
+            self.output_classif_opt_sr = optimizer(
                 [p for p in dann_params if p.requires_grad],
                 lr=lr,
                 betas=(beta1, beta2),
@@ -185,21 +199,25 @@ class MUNIT_Trainer(nn.Module):
             )
             self.output_classifier_sr_b.apply(weights_init("gaussian"))
             self.output_classifier_sr_a.apply(weights_init("gaussian"))
-            self.output_scheduler_sr = get_scheduler(self.output_classif_opt_sr, hyperparameters)
+            self.output_scheduler_sr = get_scheduler(
+                self.output_classif_opt_sr, hyperparameters
+            )
 
         if self.train_seg:
             pretrained = load_segmentation_model(
                 hyperparameters["semantic_ckpt_path"], 19
             )
             last_layer = nn.Conv2d(512, 10, kernel_size=1)
-            model = torch.nn.Sequential(*list(pretrained.resnet34_8s.children())[7:-1], last_layer.cuda())
+            model = torch.nn.Sequential(
+                *list(pretrained.resnet34_8s.children())[7:-1], last_layer.cuda()
+            )
             self.segmentation_head = model
 
             for param in self.segmentation_head.parameters():
                 param.requires_grad = True
 
             dann_params = list(self.segmentation_head.parameters())
-            self.segmentation_opt = torch.optim.Adam(
+            self.segmentation_opt = optimizer(
                 [p for p in dann_params if p.requires_grad],
                 lr=lr,
                 betas=(beta1, beta2),
@@ -207,6 +225,59 @@ class MUNIT_Trainer(nn.Module):
             )
             self.scheduler_seg = get_scheduler(self.segmentation_opt, hyperparameters)
 
+    def dann_opt_step(self):
+        """Run an optimizing step ; if using ExtraAdam, there needs to be an extrapolation
+        step every other step
+        """
+        if "extra" in self.hyperparameters["optimizer"] and (self.iterations % 2 == 0):
+            self.dann_opt.extrapolation()
+        else:
+            self.dann_opt.step()
+
+    def output_classif_opt_sr_step(self):
+        """Run an optimizing step ; if using ExtraAdam, there needs to be an extrapolation
+        step every other step
+        """
+        if "extra" in self.hyperparameters["optimizer"] and (self.iterations % 2 == 0):
+            self.output_classif_opt_sr.extrapolation()
+        else:
+            self.output_classif_opt_sr.step()
+
+    def classif_opt_sr_step(self):
+        """Run an optimizing step ; if using ExtraAdam, there needs to be an extrapolation
+        step every other step
+        """
+        if "extra" in self.hyperparameters["optimizer"] and (self.iterations % 2 == 0):
+            self.classif_opt_sr.extrapolation()
+        else:
+            self.classif_opt_sr.step()
+
+    def dis_opt_step(self):
+        """Run an optimizing step ; if using ExtraAdam, there needs to be an extrapolation
+        step every other step
+        """
+        if "extra" in self.hyperparameters["optimizer"] and (self.iterations % 2 == 0):
+            self.dis_opt.extrapolation()
+        else:
+            self.dis_opt.step()
+
+    def gen_opt_step(self):
+        """Run an optimizing step ; if using ExtraAdam, there needs to be an extrapolation
+        step every other step
+        """
+        if "extra" in self.hyperparameters["optimizer"] and (self.iterations % 2 == 0):
+            self.gen_opt.extrapolation()
+        else:
+            self.gen_opt.step()
+
+    def segmentation_opt_step(self):
+        """Run an optimizing step ; if using ExtraAdam, there needs to be an extrapolation
+        step every other step
+        """
+        if "extra" in self.hyperparameters["optimizer"] and (self.iterations % 2 == 0):
+            self.segmentation_opt.extrapolation()
+        else:
+            self.segmentation_opt.step()
 
     def recon_criterion(self, input, target):
         """
@@ -266,7 +337,16 @@ class MUNIT_Trainer(nn.Module):
         return x_ab, x_ba
 
     def gen_update(
-        self, x_a, x_b, hyperparameters ,mask_a=None, mask_b=None, comet_exp=None, synth=False, semantic_gt_a=None, semantic_gt_b=None
+        self,
+        x_a,
+        x_b,
+        hyperparameters,
+        mask_a=None,
+        mask_b=None,
+        comet_exp=None,
+        synth=False,
+        semantic_gt_a=None,
+        semantic_gt_b=None,
     ):
         """
         Update the generator parameters
@@ -368,21 +448,23 @@ class MUNIT_Trainer(nn.Module):
         else:
             print("self.guided unknown value:", self.guided)
 
-
         self.loss_gen_recon_c_a = self.recon_criterion(c_a_recon, c_a)
         self.loss_gen_recon_c_b = self.recon_criterion(c_b_recon, c_b)
 
         # Synthetic reconstruction loss
         if synth:
-            #print('mask_b.shape', mask_b.shape)
+            # print('mask_b.shape', mask_b.shape)
             # Define the mask of exact same pixel among a pair
             mask_alignment = (torch.sum(torch.abs(x_a - x_b), 1) == 0).unsqueeze(1)
             mask_alignment = mask_alignment.type(torch.cuda.FloatTensor)
-            #print('mask_alignment.shape', mask_alignment.shape)
+            # print('mask_alignment.shape', mask_alignment.shape)
 
-
-        self.loss_gen_recon_synth = self.recon_criterion_mask(x_ab, x_b, 1-mask_alignment) + \
-                                    self.recon_criterion_mask(x_ba, x_a, 1-mask_alignment)  if synth else 0
+        self.loss_gen_recon_synth = (
+            self.recon_criterion_mask(x_ab, x_b, 1 - mask_alignment)
+            + self.recon_criterion_mask(x_ba, x_a, 1 - mask_alignment)
+            if synth
+            else 0
+        )
 
         if self.recon_mask:
             self.loss_gen_cycrecon_x_a = (
@@ -432,7 +514,9 @@ class MUNIT_Trainer(nn.Module):
         # Domain adversarial loss (c_a and c_b are swapped because we want the feature to be less informative
         # minmax (accuracy but max min loss)
         self.domain_adv_loss = (
-            self.compute_domain_adv_loss(c_a,c_b, compute_accuracy=False, minimize=False)
+            self.compute_domain_adv_loss(
+                c_a, c_b, compute_accuracy=False, minimize=False
+            )
             if hyperparameters["domain_adv_w"] > 0
             else 0
         )
@@ -444,7 +528,11 @@ class MUNIT_Trainer(nn.Module):
         )
 
         if hyperparameters["adaptation"]["output_adv_lambda"] > 0:
-            self.loss_output_classifier_sr = self.output_classifier_sr_a.calc_gen_loss_sr(x_ba) + self.output_classifier_sr_b.calc_gen_loss_sr(x_ab)
+            self.loss_output_classifier_sr = self.output_classifier_sr_a.calc_gen_loss_sr(
+                x_ba
+            ) + self.output_classifier_sr_b.calc_gen_loss_sr(
+                x_ab
+            )
 
         else:
 
@@ -468,41 +556,67 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["domain_adv_w"] * self.domain_adv_loss
             + hyperparameters["recon_synth_w"] * self.loss_gen_recon_synth
             + hyperparameters["adaptation"]["adv_lambda"] * self.loss_classifier_sr
-            + hyperparameters["adaptation"]["output_adv_lambda"] * self.loss_output_classifier_sr
+            + hyperparameters["adaptation"]["output_adv_lambda"]
+            * self.loss_output_classifier_sr
         )
 
         self.loss_gen_total.backward()
-        self.gen_opt.step()
+        self.gen_opt_step()
 
         if comet_exp is not None:
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a.cpu().detach())
             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_x_a", self.loss_gen_recon_x_a.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_s_a", self.loss_gen_recon_s_a.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_c_a", self.loss_gen_recon_c_a.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_x_b", self.loss_gen_recon_x_b.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_s_b", self.loss_gen_recon_s_b.cpu().detach())
-            comet_exp.log_metric("loss_gen_recon_c_b", self.loss_gen_recon_c_b.cpu().detach())
-            comet_exp.log_metric("loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a.cpu().detach())
-            comet_exp.log_metric("loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b.cpu().detach())
+            comet_exp.log_metric(
+                "loss_gen_recon_x_a", self.loss_gen_recon_x_a.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "loss_gen_recon_s_a", self.loss_gen_recon_s_a.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "loss_gen_recon_c_a", self.loss_gen_recon_c_a.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "loss_gen_recon_x_b", self.loss_gen_recon_x_b.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "loss_gen_recon_s_b", self.loss_gen_recon_s_b.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "loss_gen_recon_c_b", self.loss_gen_recon_c_b.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "loss_gen_cycrecon_x_a", self.loss_gen_cycrecon_x_a.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "loss_gen_cycrecon_x_b", self.loss_gen_cycrecon_x_b.cpu().detach()
+            )
             comet_exp.log_metric("loss_gen_total", self.loss_gen_total.cpu().detach())
             if hyperparameters["vgg_w"] > 0:
-                comet_exp.log_metric("loss_gen_vgg_a", self.loss_gen_vgg_a.cpu().detach())
-                comet_exp.log_metric("loss_gen_vgg_b", self.loss_gen_vgg_b.cpu().detach())
+                comet_exp.log_metric(
+                    "loss_gen_vgg_a", self.loss_gen_vgg_a.cpu().detach()
+                )
+                comet_exp.log_metric(
+                    "loss_gen_vgg_b", self.loss_gen_vgg_b.cpu().detach()
+                )
             if hyperparameters["semantic_w"] > 0:
                 comet_exp.log_metric("loss_sem_seg", self.loss_sem_seg.cpu().detach())
             if hyperparameters["domain_adv_w"] > 0:
-                comet_exp.log_metric("domain_adv_loss_gen", self.domain_adv_loss.cpu().detach())
+                comet_exp.log_metric(
+                    "domain_adv_loss_gen", self.domain_adv_loss.cpu().detach()
+                )
             if synth:
-                comet_exp.log_metric("loss_gen_recon_synth", self.loss_gen_recon_synth.cpu().detach())
+                comet_exp.log_metric(
+                    "loss_gen_recon_synth", self.loss_gen_recon_synth.cpu().detach()
+                )
             if self.use_classifier_sr:
-                comet_exp.log_metric("loss_classifier_adv_sr", self.loss_classifier_sr.cpu().detach())
+                comet_exp.log_metric(
+                    "loss_classifier_adv_sr", self.loss_classifier_sr.cpu().detach()
+                )
             if self.use_output_classifier_sr:
-                comet_exp.log_metric("loss_output_classifier_adv_sr", self.loss_output_classifier_sr.cpu().detach())
-
-
-
-
+                comet_exp.log_metric(
+                    "loss_output_classifier_adv_sr",
+                    self.loss_output_classifier_sr.cpu().detach(),
+                )
 
     def compute_vgg_loss(self, vgg, img, target):
         """
@@ -555,8 +669,7 @@ class MUNIT_Trainer(nn.Module):
 
         return loss
 
-
-    def compute_domain_adv_loss(self, c_a, c_b, compute_accuracy=False,minimize=True):
+    def compute_domain_adv_loss(self, c_a, c_b, compute_accuracy=False, minimize=True):
         """
         Compute a domain adversarial loss on the embedding of the classifier:
         we are trying to learn an anonymized representation of the content.
@@ -580,15 +693,14 @@ class MUNIT_Trainer(nn.Module):
         output_b = self.domain_classifier_ab(c_b)
 
         # Concatenate the output in a single vector
-        output = torch.cat((output_a,output_b))
-
+        output = torch.cat((output_a, output_b))
 
         if minimize:
-            target = torch.tensor([1.,0.,0.,1.],device='cuda')
+            target = torch.tensor([1.0, 0.0, 0.0, 1.0], device="cuda")
         else:
-            target = torch.tensor([0.5,0.5,0.5,0.5],device='cuda')
+            target = torch.tensor([0.5, 0.5, 0.5, 0.5], device="cuda")
         # mean square error loss
-        loss = torch.nn.MSELoss()(output,target)
+        loss = torch.nn.MSELoss()(output, target)
         if compute_accuracy:
             return loss, output_a[0], output_b[1]
         else:
@@ -614,10 +726,10 @@ class MUNIT_Trainer(nn.Module):
         input_transformed2 = seg_batch_transform(img2_denorm)
 
         # compute labels from original image and logits from translated version
-        #target = (
+        # target = (
         #   self.segmentation_model(input_transformed1).max(1)[1]
-        #)
-        #Infer x_ab or x_ba
+        # )
+        # Infer x_ab or x_ba
         output = self.segmentation_model(input_transformed2)
 
         # If we have a ground truth (simulated data), merge classes to fit the ground truth of our simulated world (19 to 10)
@@ -628,38 +740,37 @@ class MUNIT_Trainer(nn.Module):
             new_class = 10
 
         else:
-            #Else use the pretrained model
-            target = (self.segmentation_model(input_transformed1).max(1)[1])
+            # Else use the pretrained model
+            target = self.segmentation_model(input_transformed1).max(1)[1]
 
-
-        #If we don't want to compute the loss on the masked region
+        # If we don't want to compute the loss on the masked region
         if not self.full_adaptation and mask is not None:
             # Resize mask to the size of the image
             # ADRIEN  DANGEROUS TO CHAAAANGE
-            mask1 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+            mask1 = torch.nn.functional.interpolate(
+                mask, size=(self.newsize, self.newsize)
+            )
 
             mask1_tensor = torch.tensor(mask1, dtype=torch.long).cuda()
             mask1_tensor = mask1_tensor.squeeze(1)
 
             # we want the masked region to be labeled as unknown (19 is not an existing label)
-            target_with_mask = torch.mul(1 - mask1_tensor, target) + mask1_tensor * new_class #CATEGORICAL TENSOR (B 20 H W) (TARGET)
+            target_with_mask = (
+                torch.mul(1 - mask1_tensor, target) + mask1_tensor * new_class
+            )  # CATEGORICAL TENSOR (B 20 H W) (TARGET)
 
-            mask2 = torch.nn.functional.interpolate(mask, size=(self.newsize, self.newsize))
+            mask2 = torch.nn.functional.interpolate(
+                mask, size=(self.newsize, self.newsize)
+            )
             mask_tensor = torch.tensor(mask2, dtype=torch.float).cuda()
             output_with_mask = torch.mul(1 - mask_tensor, output)
             #
             # cat the mask as to the logits (loss=0 over the masked region)
-            output_with_mask_cat = torch.cat(
-               (output_with_mask, mask_tensor),dim=1
-            )
-            loss = nn.CrossEntropyLoss()(
-               output_with_mask_cat, target_with_mask
-            )
+            output_with_mask_cat = torch.cat((output_with_mask, mask_tensor), dim=1)
+            loss = nn.CrossEntropyLoss()(output_with_mask_cat, target_with_mask)
 
         else:
-            loss = nn.CrossEntropyLoss()(
-               output, target
-            )
+            loss = nn.CrossEntropyLoss()(output, target)
         return loss
 
     def sample(self, x_a, x_b):
@@ -976,7 +1087,6 @@ class MUNIT_Trainer(nn.Module):
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
-
     def sample_fid(self, x_a, x_b):
         """
         Infer the model on a batch of image
@@ -991,7 +1101,7 @@ class MUNIT_Trainer(nn.Module):
             x_ab_1,semantic segmentation x_ab_1, x_ab_2
         """
         self.eval()
-        x_ab1= []
+        x_ab1 = []
 
         if self.gen_state == 0:
             for i in range(x_a.size(0)):
@@ -999,9 +1109,7 @@ class MUNIT_Trainer(nn.Module):
                 _, s_b_fake = self.gen_b.encode(x_b[i].unsqueeze(0))
 
                 if self.guided == 1:
-                    x_ab1.append(
-                        self.gen_b.decode(c_a, s_b_fake)
-                    )
+                    x_ab1.append(self.gen_b.decode(c_a, s_b_fake))
 
                 else:
                     print("self.guided unknown value:", self.guided)
@@ -1011,9 +1119,7 @@ class MUNIT_Trainer(nn.Module):
                 c_a, _ = self.gen.encode(x_a[i].unsqueeze(0), 1)
                 _, s_b_fake = self.gen.encode(x_b[i].unsqueeze(0), 2)
                 if self.guided == 1:
-                    x_ab1.append(
-                        self.gen.decode(c_a, s_b_fake, 2)
-                    )
+                    x_ab1.append(self.gen.decode(c_a, s_b_fake, 2))
                 else:
                     print("self.guided unknown value:", self.guided)
 
@@ -1026,7 +1132,6 @@ class MUNIT_Trainer(nn.Module):
             self.segmentation_model.eval()
 
         return x_ab1
-
 
     def dis_update(self, x_a, x_b, hyperparameters, comet_exp=None):
         """
@@ -1081,7 +1186,7 @@ class MUNIT_Trainer(nn.Module):
             + hyperparameters["gan_w"] * self.loss_dis_b
         )
         self.loss_dis_total.backward()
-        self.dis_opt.step()
+        self.dis_opt_step()
 
         if comet_exp is not None:
             comet_exp.log_metric("loss_dis_b", self.loss_dis_b.cpu().detach())
@@ -1115,18 +1220,26 @@ class MUNIT_Trainer(nn.Module):
 
         # domain classifier loss
         self.domain_class_loss, out_a, out_b = self.compute_domain_adv_loss(
-            c_a, c_b, compute_accuracy=True,minimize=True)
+            c_a, c_b, compute_accuracy=True, minimize=True
+        )
 
         self.domain_class_loss.backward()
-        self.dann_opt.step()
+        self.dann_opt_step()
 
         if comet_exp is not None:
-            comet_exp.log_metric("domain_class_loss", self.domain_class_loss.cpu().detach())
-            comet_exp.log_metric("probability A being identified as A", out_a.cpu().detach())
-            comet_exp.log_metric("probability B being identified as B", out_b.cpu().detach())
+            comet_exp.log_metric(
+                "domain_class_loss", self.domain_class_loss.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "probability A being identified as A", out_a.cpu().detach()
+            )
+            comet_exp.log_metric(
+                "probability B being identified as B", out_b.cpu().detach()
+            )
 
-
-    def domain_classifier_sr_update(self, x_a, x_b, domain_synth, lambda_classifier, step, comet_exp=None):
+    def domain_classifier_sr_update(
+        self, x_a, x_b, domain_synth, lambda_classifier, step, comet_exp=None
+    ):
 
         self.classif_opt_sr.zero_grad()
 
@@ -1135,39 +1248,47 @@ class MUNIT_Trainer(nn.Module):
             c_a, _ = self.gen_a.encode(x_a)
             c_b, _ = self.gen_b.encode(x_b)
 
-
         elif self.gen_state == 1:
             # encode
             c_a, _ = self.gen.encode(x_a, 1)
-            c_b, _ = self.gen.encode(x_b ,2)
+            c_b, _ = self.gen.encode(x_b, 2)
 
         else:
             print("self.gen_state unknown value:", self.gen_state)
 
-        #noise = c_a.data.new(c_a.size()).normal_(0, 1)
-        loss = self.compute_classifier_sr_loss(c_a.detach(), c_b.detach(), domain_synth, fool=False)
+        # noise = c_a.data.new(c_a.size()).normal_(0, 1)
+        loss = self.compute_classifier_sr_loss(
+            c_a.detach(), c_b.detach(), domain_synth, fool=False
+        )
         loss = lambda_classifier * loss
         loss.backward()
-        self.classif_opt_sr.step()
+        self.classif_opt_sr_step()
 
         if comet_exp is not None:
             comet_exp.log_metric("loss_classifier_sr", loss.cpu().detach(), step=step)
 
-
-    def output_domain_classifier_sr_update(self, x_ar, x_as, x_br, x_bs, hyperparameters, step, comet_exp=None):
+    def output_domain_classifier_sr_update(
+        self, x_ar, x_as, x_br, x_bs, hyperparameters, step, comet_exp=None
+    ):
 
         self.output_classif_opt_sr.zero_grad()
 
-        loss = self.output_classifier_sr_b.calc_dis_loss_sr(x_bs, x_br) + self.output_classifier_sr_a.calc_dis_loss_sr(x_as, x_ar)
+        loss = self.output_classifier_sr_b.calc_dis_loss_sr(
+            x_bs, x_br
+        ) + self.output_classifier_sr_a.calc_dis_loss_sr(x_as, x_ar)
         loss = hyperparameters["adaptation"]["output_classifier_lambda"] * loss
         loss.backward()
 
         self.output_classif_opt_sr.step()
 
         if comet_exp is not None:
-            comet_exp.log_metric("loss_output_classifier_sr", loss.cpu().detach(), step=step)
+            comet_exp.log_metric(
+                "loss_output_classifier_sr", loss.cpu().detach(), step=step
+            )
 
-    def segmentation_head_update(self, x_a, x_b, target_a, target_b, lamb, comet_exp=None):
+    def segmentation_head_update(
+        self, x_a, x_b, target_a, target_b, lamb, comet_exp=None
+    ):
 
         self.segmentation_opt.zero_grad()
 
@@ -1184,15 +1305,19 @@ class MUNIT_Trainer(nn.Module):
 
         output_a = self.segmentation_head(c_a)
         output_b = self.segmentation_head(c_b)
-        output_a = nn.functional.interpolate(input=output_a, size=(self.newsize, self.newsize), mode="bilinear")
-        output_b = nn.functional.interpolate(input=output_b, size=(self.newsize, self.newsize), mode="bilinear")
+        output_a = nn.functional.interpolate(
+            input=output_a, size=(self.newsize, self.newsize), mode="bilinear"
+        )
+        output_b = nn.functional.interpolate(
+            input=output_b, size=(self.newsize, self.newsize), mode="bilinear"
+        )
 
         loss1 = nn.CrossEntropyLoss()(
-               output_a, target_a.type(torch.long).squeeze(1).cuda()
-            )
+            output_a, target_a.type(torch.long).squeeze(1).cuda()
+        )
         loss2 = nn.CrossEntropyLoss()(
-               output_b, target_b.type(torch.long).squeeze(1).cuda()
-            )
+            output_b, target_b.type(torch.long).squeeze(1).cuda()
+        )
         loss = (loss1 + loss2) * lamb
 
         loss.backward()
@@ -1305,4 +1430,3 @@ class MUNIT_Trainer(nn.Module):
                 {"gen": self.gen_opt.state_dict(), "dis": self.dis_opt.state_dict()},
                 opt_name,
             )
-
