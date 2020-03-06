@@ -36,6 +36,9 @@ class MUNIT_Trainer(nn.Module):
         self.recon_mask = hyperparameters["recon_mask"] == 1
         self.dann_scheduler = None
         self.full_adaptation = hyperparameters["adaptation"]["full_adaptation"] == 1
+        dim = hyperparameters["gen"]["dim"]
+        n_downsample = hyperparameters["gen"]["n_downsample"]
+        latent_dim = dim * (2 ** n_downsample)
 
         if "domain_adv_w" in hyperparameters.keys():
             self.domain_classif_ab = hyperparameters["domain_adv_w"] > 0
@@ -106,11 +109,6 @@ class MUNIT_Trainer(nn.Module):
 
         # Load semantic segmentation model if needed
         if "semantic_w" in hyperparameters.keys() and hyperparameters["semantic_w"] > 0:
-            print("---------------------")
-            print("----------------------")
-            print("---------------------")
-            print("----------------------")
-            print("----------------------")
             self.segmentation_model = load_segmentation_model(
                 hyperparameters["semantic_ckpt_path"], 19
             )
@@ -120,7 +118,7 @@ class MUNIT_Trainer(nn.Module):
 
         # Load domain classifier if needed
         if "domain_adv_w" in hyperparameters.keys() and hyperparameters["domain_adv_w"] > 0:
-            self.domain_classifier_ab = domainClassifier(256)
+            self.domain_classifier_ab = domainClassifier(input_dim=latent_dim, dim=256)
             dann_params = list(self.domain_classifier_ab.parameters())
             self.dann_opt = torch.optim.Adam(
                 [p for p in dann_params if p.requires_grad],
@@ -133,9 +131,10 @@ class MUNIT_Trainer(nn.Module):
 
         # Load classifier on features for syn, real adaptation
         if self.use_classifier_sr:
+            #! Hardcoded
+            self.domain_classifier_sr_b = domainClassifier(input_dim=latent_dim, dim=256)
+            self.domain_classifier_sr_a = domainClassifier(input_dim=latent_dim, dim=256)
 
-            self.domain_classifier_sr_b = domainClassifier(256)
-            self.domain_classifier_sr_a = domainClassifier(256)
             dann_params = list(self.domain_classifier_sr_a.parameters()) + list(
                 self.domain_classifier_sr_b.parameters()
             )
@@ -705,7 +704,7 @@ class MUNIT_Trainer(nn.Module):
         else:
             return x_a, x_a_recon, x_ab1, x_ab2, save_m_a, x_b, x_b_recon, x_ba1, x_ba2, save_m_b
 
-    def sample_syn(self, x_a, x_b):
+    def sample_syn(self, x_a, x_b, m_a, m_b):
         """ 
         Infer the model on a batch of image
         
@@ -725,8 +724,8 @@ class MUNIT_Trainer(nn.Module):
         for i in range(x_a.size(0)):
             c_a = self.gen.encode(x_a[i].unsqueeze(0), 1)
             c_b = self.gen.encode(x_b[i].unsqueeze(0), 2)
-            x_a_recon.append(self.gen.decode(c_a, 1))
-            x_b_recon.append(self.gen.decode(c_b, 2))
+            x_a_recon.append(self.gen.decode(c_a, m_a[i].unsqueeze(0), 1))
+            x_b_recon.append(self.gen.decode(c_b, m_b[i].unsqueeze(0), 2))
 
             x_ba1.append(self.gen.decode(c_b, m_b[i].unsqueeze(0), 1))
             x_ba2.append(self.gen.decode(c_b, m_b[i].unsqueeze(0), 1))

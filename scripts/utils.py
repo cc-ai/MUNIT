@@ -1338,11 +1338,11 @@ def mapping(im):
 
 # Define the encoded
 class domainClassifier(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, input_dim, dim):
         super(domainClassifier, self).__init__()
 
         self.max_pool1 = nn.MaxPool2d(2)
-        self.BasicBlock1 = BasicBlock(256, 128, True)
+        self.BasicBlock1 = BasicBlock(input_dim, 128, True)
         self.max_pool2 = nn.MaxPool2d(2)
         self.BasicBlock2 = BasicBlock(128, 64, True)
         self.avg_pool = nn.AvgPool2d((16, 16))
