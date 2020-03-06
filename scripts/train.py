@@ -177,9 +177,6 @@ train_display_masks_b = torch.stack(
     [train_loader_b_w_mask.dataset[i][1] for i in range(display_size)]
 ).cuda()
 
-# test_display_images_a = torch.stack([test_loader_a.dataset[i] for i in range(display_size)]).cuda()
-# test_display_images_b = torch.stack([test_loader_b.dataset[i] for i in range(display_size)]).cuda()
-
 test_display_images_a = torch.stack(
     [test_loader_a_w_mask.dataset[i][0] for i in range(display_size)]
 ).cuda()
@@ -193,6 +190,18 @@ test_display_images_b = torch.stack(
 test_display_masks_b = torch.stack(
     [test_loader_b_w_mask.dataset[i][1] for i in range(display_size)]
 ).cuda()
+
+if config["synthetic_frequency"] > 0:
+    sim_display_images_a = torch.stack(
+        [synthetic_loader.dataset[i][0] for i in range(display_size)]
+    ).cuda()
+    sim_display_images_b = torch.stack(
+        [synthetic_loader.dataset[i][1] for i in range(display_size)]
+    ).cuda()
+    sim_display_masks = torch.stack(
+        [synthetic_loader.dataset[i][2] for i in range(display_size)]
+    ).cuda()
+
 
 # Setup logger and output folders
 model_name = os.path.splitext(os.path.basename(opts.config))[0]
@@ -333,7 +342,16 @@ if config["semantic_w"] != 0 or True:
                             train_display_masks_a,
                             train_display_masks_b,
                         )
-                        # Write images
+
+                        if config["synthetic_frequency"] > 0:
+                            sim_image_outputs = trainer.sample(
+                                sim_display_images_a,
+                                sim_display_images_b,
+                                sim_display_masks,
+                                sim_display_masks,
+                            )
+
+                    # Write images
 
                     write_2images(
                         test_image_outputs,
@@ -349,6 +367,15 @@ if config["semantic_w"] != 0 or True:
                         "train_%08d" % (iterations + 1),
                         comet_exp,
                     )
+
+                    if config["synthetic_frequency"] > 0:
+                        write_2images(
+                            sim_image_outputs,
+                            display_size,
+                            image_directory,
+                            "sim%08d" % (iterations + 1),
+                            comet_exp,
+                        )
 
                 if (iterations + 1) % config["image_display_iter"] == 0:
                     with torch.no_grad():
