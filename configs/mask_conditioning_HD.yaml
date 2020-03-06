@@ -6,25 +6,25 @@ image_save_iter: 1000         # How often do you want to save output images duri
 image_display_iter: 500       # How often do you want to display output images during training
 display_size: 8               # How many images do you want to display each time
 snapshot_save_iter: 5000      # How often do you want to save trained models
-log_iter: 10                   # How often do you want to log the training stats
+log_iter: 1                   # How often do you want to log the training stats
 
 # optimization options
 max_iter: 1000000             # maximum number of training iterations
-batch_size: 1               # batch size
+batch_size: 1                 # batch size
 weight_decay: 0.0001          # weight decay
 beta1: 0.5                    # Adam parameter
 beta2: 0.999                  # Adam parameter
 init: kaiming                 # initialization [gaussian/kaiming/xavier/orthogonal]
 lr: 0.0001                    # initial learning rate
 lr_policy: step               # learning rate scheduler
-step_size: 70000              # how often to decay learning rate
+step_size: 100000             # how often to decay learning rate
 gamma: 0.5                    # how much to decay learning rate
 gan_w: 3                      # weight of adversarial loss
-recon_x_w: 2                 # weight of image reconstruction loss
-recon_s_w: 1                  # weight of style reconstruction loss
-recon_c_w: 2                  # weight of content reconstruction loss
+recon_x_w: 12                 # weight of image reconstruction loss
+recon_c_w: 0                  # weight of content reconstruction loss
 recon_x_cyc_w: 12             # weight of explicit style augmented cycle consistency loss
 vgg_w: 0                      # weight of domain-invariant perceptual loss
+
 adaptation:
     full_adaptation: 0
     ##################
@@ -32,29 +32,25 @@ adaptation:
     output_adv_lambda: 0
     output_classif_freq: 1
     ##################
-    adv_lambda: 6
-    dfeat_lambda: 1
-    classif_frequency: 15      
+    adv_lambda: 0
+    dfeat_lambda: 0
+    classif_frequency: 0      
     ##################
-    sem_seg_lambda: 0 
+    sem_seg_lambda: 0
     
 synthetic_seg_gt: 1           #Use synthetic ground truth as target for synthetic images  
-semantic_w: 4                 # weight of semantic conservation loss
+semantic_w: 0                 # weight of semantic conservation loss
+context_w: 10                  #Weight of context preserving (L1) loss
 recon_mask: 1                 # default 0 do not touch recon loss, 1 do not compute cycle consistency loss on masked region
 domain_adv_w: 0 
-classifier_frequency: 1       # Update of the classif
 
 synthetic_frequency: -1       # frequency to which we show synthetic examples -1 if we don't want to
 recon_synth_w: 0             # weight of image reconstruction loss on the pair
 #classifier ckpt path: 
-class_ckpt_path: 
+class_ckpt_path: /network/home/cosnegau/ckpt_small/resnet-18-epoch24.pth
 
 # Semantic segmentation ckpt path:
 semantic_ckpt_path: /network/tmp1/ccai/checkpoints/roadSegmentation/resnet_34_8s_cityscapes_best.pth
-
-# model options
-gen_state: 1                  # Default 0, 1 means using one common style encoder, 2 one autoencoder only
-guided: 1                     # Default 0 random style picked (multi modal), 1 means guided training
 
 # FID 
 batch_size_fid: 1            # batch_size to infer the model when computing fid
@@ -65,49 +61,56 @@ inception_moment_path: /network/tmp1/ccai/data/munit_dataset/inception_moments.n
       
 
 gen:
-  dim: 64                     # number of filters in the bottommost layer
-  mlp_dim: 256                # number of filters in MLP
-  style_dim: 16               # length of style code
+  dim: 32                     # number of filters in the bottommost layer
+  mlp_dim: 128                # number of filters in MLP
   activ: relu                 # activation function [relu/lrelu/prelu/selu/tanh]
   n_downsample: 2             # number of downsampling layers in content encoder
   n_res: 4                    # number of residual blocks in content encoder/decoder
   pad_type: reflect           # padding type [zero/reflect]
 dis:
-  dim: 64                     # number of filters in the bottommost layer
+  dim: 32                     # number of filters in the bottommost layer
   norm: none                  # normalization layer [none/bn/in/ln]
   activ: lrelu                # activation function [relu/lrelu/prelu/selu/tanh]
   n_layer: 4                  # number of layers in D
-  gan_type: lsgan             # GAN loss [lsgan/nsgan]
+  gan_type: nsgan             # GAN loss [lsgan/nsgan]
   num_scales: 3               # number of scales
   pad_type: reflect           # padding type [zero/reflect]
 
-ratio_disc_gen: 1               # ratio training discriminator vs generator 5 means 5 update of the discriminator for one of the generator
+ratio_disc_gen: 1              # ratio training discriminator vs generator 5 means 5 update of the discriminator for one of the generator
 
 # data options
 input_dim_a: 3                              # number of image channels [1/3]
 input_dim_b: 3                              # number of image channels [1/3]
 num_workers: 4                              # number of data loading threads
-new_size: 256                               # first resize the shortest image side to this size
-crop_image_height: 256                      # random crop image of this height
-crop_image_width: 256                       # random crop image of this width
+new_size: 400                               # first resize the shortest image side to this size
+crop_image_height: 400                      # random crop image of this height
+crop_image_width: 400                       # random crop image of this width
 
+#do we even need this?
 data_folder_train_a: ./
-data_list_train_a: /network/tmp1/ccai/data/munit_dataset/trainA_heightextreme.txt
+data_list_train_a: /network/tmp1/ccai/MUNITfilelists/trainA.txt
+#and this?
 data_folder_test_a: ./
-data_list_test_a: /network/tmp1/ccai/data/munit_dataset/testA.txt
+data_list_test_a: /network/tmp1/ccai/MUNITfilelists/testA.txt
 data_folder_train_b: ./
-data_list_train_b: /network/tmp1/ccai/data/munit_dataset/trainB.txt
+data_list_train_b: /network/tmp1/ccai/MUNITfilelists/trainB.txt
 data_folder_test_b: ./
-data_list_test_b: /network/tmp1/ccai/data/munit_dataset/testB.txt
-data_list_train_a_seg: /network/tmp1/ccai/data/munit_dataset/trainA_seg_heightextreme.txt
-data_list_train_b_seg: /network/tmp1/ccai/data/munit_dataset/trainB_seg.txt
+data_list_test_b: /network/tmp1/ccai/MUNITfilelists/testB.txt
+
+data_list_train_a_seg: /network/tmp1/ccai/MUNITfilelists/seg_trainA.txt
+data_list_train_b_seg: /network/tmp1/ccai/MUNITfilelists/seg_trainB.txt
+
+data_list_test_a_seg: /network/tmp1/ccai/MUNITfilelists/seg_testA.txt
+data_list_test_b_seg: /network/tmp1/ccai/MUNITfilelists/seg_testB.txt
 
 data_list_train_a_synth: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/normal.txt
 data_list_train_b_synth: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/flood.txt
 data_list_train_b_seg_synth: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/mask.txt #binary mask
-seg_list_a: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/seg.txt
-seg_list_b: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/seg_flood.txt
 
 # list image for FID monitoring
 data_list_fid_a: /network/tmp1/ccai/data/munit_dataset/trainA_fid.txt
-data_list_fid_b: /network/tmp1/ccai/data/munit_dataset/trainB.txt
+data_list_fid_b: /network/tmp1/ccai/MUNITfilelists/trainB.txt
+
+seg_list_a: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/seg.txt
+seg_list_b: /network/tmp1/ccai/data/munit_dataset/simdata/Unity1000R/txt_files/seg_flood.txt
+
