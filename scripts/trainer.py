@@ -106,6 +106,11 @@ class MUNIT_Trainer(nn.Module):
 
         # Load semantic segmentation model if needed
         if "semantic_w" in hyperparameters.keys() and hyperparameters["semantic_w"] > 0:
+            print("---------------------")
+            print("----------------------")
+            print("---------------------")
+            print("----------------------")
+            print("----------------------")
             self.segmentation_model = load_segmentation_model(
                 hyperparameters["semantic_ckpt_path"], 19
             )
@@ -610,9 +615,6 @@ class MUNIT_Trainer(nn.Module):
 
         x_a_recon, x_b_recon, x_ba1, x_ba2, x_ab1, x_ab2 = [], [], [], [], [], []
 
-        print("************************************")
-        print("x_a shape: ", x_a.shape)
-
         for i in range(x_a.size(0)):
             c_a = self.gen.encode(x_a[i].unsqueeze(0), 1)
             c_b = self.gen.encode(x_b[i].unsqueeze(0), 2)
@@ -629,8 +631,6 @@ class MUNIT_Trainer(nn.Module):
         x_ba1, x_ba2 = torch.cat(x_ba1), torch.cat(x_ba2)
         x_ab1, x_ab2 = torch.cat(x_ab1), torch.cat(x_ab2)
 
-        print("x_a recon shape: ", x_a_recon.shape)
-        print("************************************")
         if self.semantic_w:
             rgb_a_list, rgb_b_list, rgb_ab_list, rgb_ba_list = [], [], [], []
 
@@ -682,6 +682,8 @@ class MUNIT_Trainer(nn.Module):
         self.train()
         # Overlay mask onto image:
         save_m_a = x_a - (x_a * m_a.repeat(1, 3, 1, 1)) + m_a.repeat(1, 3, 1, 1)
+        save_m_b = x_b - (x_b * m_b.repeat(1, 3, 1, 1)) + m_b.repeat(1, 3, 1, 1)
+
         if self.semantic_w:
             self.segmentation_model.eval()
             return (
@@ -698,10 +700,10 @@ class MUNIT_Trainer(nn.Module):
                 x_ba1,
                 rgb1_ba,
                 x_ba2,
-                m_b,
+                save_m_b,
             )
         else:
-            return x_a, x_a_recon, x_ab1, x_ab2, m_a, x_b, x_b_recon, x_ba1, x_ba2, m_b
+            return x_a, x_a_recon, x_ab1, x_ab2, save_m_a, x_b, x_b_recon, x_ba1, x_ba2, save_m_b
 
     def sample_syn(self, x_a, x_b):
         """ 

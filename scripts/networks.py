@@ -80,6 +80,8 @@ class MsImageDis(nn.Module):
         outs0 = self.forward(input_fake)
         outs1 = self.forward(input_real)
         loss = 0
+        fake_loss = 0
+        real_loss = 0
         # print(len(outs0), len(outs1))
 
         for it, (out0, out1) in enumerate(zip(outs0, outs1)):
@@ -97,22 +99,29 @@ class MsImageDis(nn.Module):
                 )
             elif self.gan_type == "wgan":
                 loss += torch.mean(out1) - torch.mean(out0)
-                if mode != None and type(mode) == str:
-                    comet_exp.log_metric("loss_dis_real_" + mode, torch.mean(out1).cpu().detach())
-                    comet_exp.log_metric("loss_dis_fake_" + mode, -torch.mean(out0).cpu().detach())
-                # Get gradient penalty loss
-                loss_gp = self.calc_gradient_penalty(input_real, input_fake)
-                comet_exp.log_metric("loss_gp" + mode, loss_gp.cpu().detach())
-                loss += loss_gp
+                real_loss += torch.mean(out1)
+                fake_loss += torch.mean(out0)
 
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
+
+        if self.gan_type == "wgan":
+            loss_gp = self.calc_gradient_penalty(input_real, input_fake)
+            loss += loss_gp
+
+            if mode != None and type(mode) == str:
+                comet_exp.log_metric("loss_dis_real_" + mode, real_loss.cpu().detach())
+                comet_exp.log_metric("loss_dis_fake_" + mode, fake_loss.cpu().detach())
+
+            # Get gradient penalty loss
+            comet_exp.log_metric("loss_gp" + mode, loss_gp.cpu().detach())
+
         return loss
 
     def calc_gradient_penalty(self, real_data, fake_data):
         #! Hardcoded
         DIM = 256
-        LAMBDA = 10
+        LAMBDA = 100
         nc = self.input_dim + 1
         alpha = torch.rand(real_data.shape)
         # alpha = alpha.view(batch_size, nc, DIM, DIM)
@@ -126,8 +135,9 @@ class MsImageDis(nn.Module):
 
         disc_interpolates = self.forward(interpolates)
 
+        total_gp = 0
         for count, i in enumerate(disc_interpolates):
-            gradients_temp = autograd.grad(
+            gradients = autograd.grad(
                 outputs=i,
                 inputs=interpolates,
                 grad_outputs=torch.ones(i.size()).cuda(),
@@ -135,14 +145,11 @@ class MsImageDis(nn.Module):
                 retain_graph=True,
                 only_inputs=True,
             )[0]
-            if count == 0:
-                gradients = gradients_temp
-            else:
-                gradients += gradients_temp
+            gradients = gradients.view(gradients.size(0), -1)
+            gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
+            total_gp += gradient_penalty
 
-        gradients = gradients.view(gradients.size(0), -1)
-        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * LAMBDA
-        return gradient_penalty
+        return total_gp
 
     def calc_gen_loss(self, input_fake, comet_exp=None, mode=None):
         # calculate the loss to train G
@@ -156,11 +163,12 @@ class MsImageDis(nn.Module):
                 loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
             elif self.gan_type == "wgan":
                 loss += torch.mean(out0)
-                if mode != None and type(mode) == str:
-                    comet_exp.log_metric("loss_gen_wgan_" + mode, torch.mean(out0).cpu().detach())
-
             else:
                 assert 0, "Unsupported GAN type: {}".format(self.gan_type)
+
+        if mode != None and type(mode) == str and self.gan_type == "wgan":
+            comet_exp.log_metric("loss_gen_wgan_" + mode, loss.cpu().detach())
+
         return loss
 
     def calc_dis_loss_sr(self, input_sim, input_real):
