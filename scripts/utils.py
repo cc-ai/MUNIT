@@ -313,7 +313,7 @@ class MyDataset(Dataset):
 
         if type(mask) is not torch.Tensor:
             # Resize mask
-            if flip == True:
+            if flip is True:
                 mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
 
             mask = mask.resize((image.width, image.height), Image.NEAREST)
@@ -957,8 +957,8 @@ class Resnet34_8s(nn.Module):
     def forward(self, x, feature_alignment=False):
         input_spatial_dim = x.size()[2:]
 
-        if feature_alignment:
-            x = adjust_input_image_size_for_proper_feature_alignment(x, output_stride=8)
+        # if feature_alignment:
+        #     x = adjust_input_image_size_for_proper_feature_alignment(x, output_stride=8)
 
         x = self.resnet34_8s(x)
 
@@ -1036,7 +1036,9 @@ def load_inception(model_path):
         model -- Inception model
     """
     state_dict = torch.load(model_path)
-    model = inception_v3(pretrained=False, transform_input=True)
+    model = inception_v3(
+        pretrained=False, transform_input=True
+    )  #! undefined inceptionv3
     model.aux_logits = False
     num_ftrs = model.fc.in_features
     model.fc = nn.Linear(num_ftrs, state_dict["fc.weight"].size(0))

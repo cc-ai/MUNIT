@@ -12,9 +12,8 @@ from comet_ml import Experiment  # keep before pytorch
 
 import torch
 import torch.backends.cudnn as cudnn
-from torch.autograd import Variable
 
-from inception_utils import load_inception_net, prepare_inception_metrics
+from inception_utils import prepare_inception_metrics
 from trainer import MUNIT_Trainer
 from utils import (
     Timer,
@@ -27,7 +26,6 @@ from utils import (
     get_synthetic_data_loader,
     prepare_sub_folder,
     write_2images,
-    write_loss,
 )
 
 try:
@@ -70,10 +68,8 @@ if comet_exp is not None:
 # Setup model and data loader
 if opts.trainer == "MUNIT":
     trainer = MUNIT_Trainer(config)
-elif opts.trainer == "UNIT":
-    trainer = UNIT_Trainer(config)
 else:
-    sys.exit("Only support MUNIT|UNIT")
+    sys.exit("Only support MUNIT")
 trainer.cuda()
 
 train_loader_a, train_loader_b, test_loader_a, test_loader_b = get_all_data_loaders(

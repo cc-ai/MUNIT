@@ -2,8 +2,7 @@
 Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from comet_ml import Experiment
-from networks import AdaINGen, AdaINGen_double, MsImageDis, VAEGen
+from networks import AdaINGen, AdaINGen_double, MsImageDis
 from extraadam import ExtraAdam
 from utils import (
     weights_init,
@@ -11,8 +10,6 @@ from utils import (
     vgg_preprocess,
     load_vgg16,
     get_scheduler,
-    load_flood_classifier,
-    transform_torchVar,
     seg_batch_transform,
     seg_transform,
     load_segmentation_model,
@@ -563,7 +560,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_total.backward()
         self.gen_opt_step()
 
-        if comet_exp is not None:
+        if comet_exp is not None and self.iterations % 100 == 0:
             comet_exp.log_metric("loss_gen_adv_a", self.loss_gen_adv_a.cpu().detach())
             comet_exp.log_metric("loss_gen_adv_b", self.loss_gen_adv_b.cpu().detach())
             comet_exp.log_metric(
@@ -646,7 +643,7 @@ class MUNIT_Trainer(nn.Module):
             c_a {torch.Tensor} -- content of x_a
             c_b {torch.Tensor} -- content of x_b
             domain_synth {Boolean} -- Whether if the content is from s or r
-            fool {Boolean} -- Wheter we want to fool the classifier or not
+            fool {Boolean} -- Whether we want to fool the classifier or not
 
         Returns:
             torch.Float -- domain invariant perceptual loss
@@ -684,7 +681,7 @@ class MUNIT_Trainer(nn.Module):
             minimize {bool} -- optimize classification accuracy(True) or anonymized the representation(False)
 
         Returns:
-            torch.Float -- loss (optionnal softmax P(classifier(c_a)=a) and P(classifier(c_b)=b))
+            torch.Float -- loss (optional softmax P(classifier(c_a)=a) and P(classifier(c_b)=b))
         """
         # Infer domain classifier on content extracted from an image of domainA
         output_a = self.domain_classifier_ab(c_a)
@@ -1188,7 +1185,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_dis_total.backward()
         self.dis_opt_step()
 
-        if comet_exp is not None:
+        if comet_exp is not None and self.iterations % 100 == 0:
             comet_exp.log_metric("loss_dis_b", self.loss_dis_b.cpu().detach())
             comet_exp.log_metric("loss_dis_a", self.loss_dis_a.cpu().detach())
 
@@ -1226,7 +1223,7 @@ class MUNIT_Trainer(nn.Module):
         self.domain_class_loss.backward()
         self.dann_opt_step()
 
-        if comet_exp is not None:
+        if comet_exp is not None and self.iterations % 100 == 0:
             comet_exp.log_metric(
                 "domain_class_loss", self.domain_class_loss.cpu().detach()
             )
@@ -1264,7 +1261,7 @@ class MUNIT_Trainer(nn.Module):
         loss.backward()
         self.classif_opt_sr_step()
 
-        if comet_exp is not None:
+        if comet_exp is not None and self.iterations % 100 == 0:
             comet_exp.log_metric("loss_classifier_sr", loss.cpu().detach(), step=step)
 
     def output_domain_classifier_sr_update(
@@ -1281,7 +1278,7 @@ class MUNIT_Trainer(nn.Module):
 
         self.output_classif_opt_sr.step()
 
-        if comet_exp is not None:
+        if comet_exp is not None and self.iterations % 100 == 0:
             comet_exp.log_metric(
                 "loss_output_classifier_sr", loss.cpu().detach(), step=step
             )
@@ -1323,7 +1320,7 @@ class MUNIT_Trainer(nn.Module):
         loss.backward()
         self.segmentation_opt.step()
 
-        if comet_exp is not None:
+        if comet_exp is not None and self.iterations % 100 == 0:
             comet_exp.log_metric("loss_semantic_head", loss.cpu().detach())
 
     def update_learning_rate(self):
@@ -1381,7 +1378,7 @@ class MUNIT_Trainer(nn.Module):
             self.dann_scheduler = get_scheduler(
                 self.dann_opt, hyperparameters, iterations
             )
-        # Reinitilize schedulers
+        # Re-initialize schedulers
         self.dis_scheduler = get_scheduler(self.dis_opt, hyperparameters, iterations)
         self.gen_scheduler = get_scheduler(self.gen_opt, hyperparameters, iterations)
         print("Resume from iteration %d" % iterations)
