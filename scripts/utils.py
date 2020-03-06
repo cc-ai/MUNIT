@@ -302,7 +302,7 @@ class MyDataset(Dataset):
 
         flip = False
         # Random horizontal flipping
-        if torch.rand(1) > 0.5:
+        if torch.rand(1) > 1.0:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
             flip = True
 
@@ -320,8 +320,8 @@ class MyDataset(Dataset):
             if flip == True:
                 mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
 
-            mask = mask.resize((image.width, image.height), Image.NEAREST)
-
+            # mask = mask.resize((image.width, image.height), Image.NEAREST)
+            mask = resize(mask)
             mask = F.crop(mask, i, j, h, w)
             if np.max(mask) == 1:
                 mask = to_tensor(mask) * 255
